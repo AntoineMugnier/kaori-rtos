@@ -1,7 +1,6 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 mod cortex_m_port;
-mod event_queue;
-mod memory_pool;
+mod memory_allocation;
 use cortex_m_port as port;
 
 #[cfg(test)]

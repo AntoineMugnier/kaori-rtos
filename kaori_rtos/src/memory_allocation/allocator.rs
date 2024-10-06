@@ -1,10 +1,7 @@
 use super::memory_pool::{MemoryPool, SlotFreeingError, SlotAllocError};
-use crate::port::interrupt;
-use core::cell::RefCell;
-use core::ops::RangeBounds;
 
-type AllocationResult = Result<*mut u8, AllocationError>;
-type FreeResult = Result<(), FreeError>;
+pub(crate) type AllocationResult = Result<*mut u8, AllocationError>;
+pub(crate) type FreeResult = Result<(), FreeError>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum AllocationError {
@@ -23,44 +20,9 @@ pub(crate) struct Allocator<'a> {
     memory_pool_array: &'a mut [MemoryPool<'a>],
 }
 
-pub struct SharedAllocator{
-    inner_allocator: interrupt::Mutex<RefCell<Option<Allocator<'static>>>>
-}
-
-// Wrapper of an allocator that offers interior mutability
-impl <'a>SharedAllocator{
-    pub const fn new() -> SharedAllocator{
-        return SharedAllocator{inner_allocator: interrupt::Mutex::new(core::cell::RefCell::new(None))}
-    }
-
-    pub(crate) unsafe fn allocate(&self, size: usize) -> AllocationResult {
-        self.alloc_op(|allocator| {
-            return Allocator::allocate(allocator, size);
-        })
-    }
-
-    pub(crate) unsafe fn free(&self, ptr: *mut u8) -> FreeResult {
-        self.alloc_op(|allocator| {
-            return Allocator::free(allocator, ptr);
-        })
-    }
-
-    fn alloc_op<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut Allocator) -> R,
-    {
-        interrupt::free(|cs| {
-            let mut allocator_opt = self.inner_allocator.borrow(cs).borrow_mut();
-            if let Some(allocator) = allocator_opt.as_mut() {
-                return f(allocator);
-            } else {
-                panic!("Calling an uninitialized allocator");
-            }
-        })
-    }
-}
 
 impl<'a> Allocator<'a> {
+
     pub fn new(memory_pool_array: &'a mut [MemoryPool<'a>]) -> Allocator {
         assert!(memory_pool_array.len() > 0, "At least one memory pool must be defined");
         let mut bigger_slot_size = 0;

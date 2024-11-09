@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 kaori-hsm = "0.1.1"
 cortex-m = {version="0.7.7", features=["critical-section-single-core"]}
+
+[dev-dependencies]
+#mockall = "0.13.0"

@@ -8,15 +8,23 @@ pub(crate) struct MemoryPoolAllocator<'a> {
 
 
 impl<'a> MemoryPoolAllocator<'a> {
-
-    pub fn new(memory_pool_array: &'a mut [&'a mut MemoryPool<'a>]) -> MemoryPoolAllocator {
-        assert!(memory_pool_array.len() > 0, "At least one memory pool must be defined");
-        let mut bigger_slot_size = 0;
-        for memory_pool in memory_pool_array.iter(){
-            assert!(memory_pool.slot_size != bigger_slot_size, "Memory pools cannot have the same slot size");
-            assert!(memory_pool.slot_size > bigger_slot_size, "Memory pools must be listed in ascending order");
-            bigger_slot_size = memory_pool.slot_size;
+    
+    const fn check_memory_pools_order(memory_pool_array: &mut [&mut MemoryPool<'a>], mut bigger_slot_size: usize){
+        match memory_pool_array{
+            [] => {},
+            [head, rest @..] =>{
+                assert!(head.words_per_slot != bigger_slot_size, "Memory pools cannot have the same slot size");
+                assert!(head.words_per_slot > bigger_slot_size, "Memory pools must be listed in ascending order");
+                bigger_slot_size = head.words_per_slot;
+                Self::check_memory_pools_order(rest, bigger_slot_size)
+            }
         }
+    }
+
+    pub const fn new(memory_pool_array: &'a mut [&'a mut MemoryPool<'a>]) -> MemoryPoolAllocator<'a> {
+        assert!(memory_pool_array.len() > 0, "At least one memory pool must be defined");
+        let bigger_slot_size = 0;
+        Self::check_memory_pools_order(memory_pool_array, bigger_slot_size);
         return MemoryPoolAllocator { memory_pool_array };
     }
 
@@ -28,7 +36,7 @@ impl<'a> MemoryPoolAllocator<'a> {
 
         for memory_pool in self.memory_pool_array.iter_mut() {
             match memory_pool.try_allocate_slot(size){
-                Result::Ok(address) => return Ok(address),
+                Result::Ok(address) => return Ok(core::mem::transmute(address)),
                 Result::Err(err) => match err {
                     SlotAllocError::SlotNotLargeEnough => continue,
                     SlotAllocError::PoolFull => return Err(AllocationError::NoMemoryAvailable)
@@ -40,6 +48,7 @@ impl<'a> MemoryPoolAllocator<'a> {
 
     pub(crate) unsafe fn free(&mut self, ptr: *mut u8) -> FreeResult {
         for memory_pool in self.memory_pool_array.iter_mut() {
+            let ptr = core::mem::transmute(ptr);
             match memory_pool.try_free_slot(ptr) {
                 Result::Ok(()) => return Ok(()),
                 Result::Err(err) => match err {
@@ -63,13 +72,15 @@ impl <'a> LocalAllocator for MemoryPoolAllocator<'a>{
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use super::super::memory_pool::StaticMemoryPool;
 
     // Single pool test
     #[test]
     fn mem_pool_allocator_test_0() {
-        const POOL0_SIZE: usize = core::mem::size_of::<usize>();
-        let mut pool0: [u8; POOL0_SIZE*2] = [0; POOL0_SIZE * 2];
-        let mut mm0: MemoryPool = MemoryPool::new(&mut pool0, POOL0_SIZE);
+        const POOL0_WORDS_PER_SLOT: usize = 1;
+        const POOL0_SLOTS_PER_POOL: usize = 2;
+        let mut static_memory_pool = StaticMemoryPool::<POOL0_SLOTS_PER_POOL>::new(POOL0_WORDS_PER_SLOT);
+        let mut mm0: MemoryPool = MemoryPool::new(&mut static_memory_pool);
         let mut m = [&mut mm0];
         let mut allocator = MemoryPoolAllocator::new(&mut m);
     unsafe{
@@ -107,14 +118,17 @@ pub(super) mod tests {
     // Multiple pools test
     #[test]
     fn mem_pool_allocator_test_1() {
-        const POOL0_SLOT_SIZE: usize = core::mem::size_of::<usize>();
-        const POOL0_SIZE: usize = 2 * POOL0_SLOT_SIZE;
-        const POOL1_SLOT_SIZE: usize = 16;
-        const POOL1_SIZE: usize = 1 * POOL1_SLOT_SIZE;
-        let mut pool0 = [0; POOL0_SIZE];
-        let mut pool1 = [0; POOL1_SIZE];
-        let mut mm0: MemoryPool = MemoryPool::new(&mut pool0, POOL0_SLOT_SIZE);
-        let mut mm1: MemoryPool = MemoryPool::new(&mut pool1, POOL1_SLOT_SIZE);
+        const POOL0_WORDS_PER_SLOT: usize = 1;
+        const POOL0_SLOTS_PER_POOL: usize = 2;
+        let mut static_memory_pool = StaticMemoryPool::<POOL0_SLOTS_PER_POOL>::new(POOL0_WORDS_PER_SLOT);
+        let mut mm0: MemoryPool = MemoryPool::new(&mut static_memory_pool);
+        let pool0_slot_size = mm0.get_slot_size();
+
+        const POOL1_WORDS_PER_SLOT: usize = 2;
+        const POOL1_SLOTS_PER_POOL: usize = 1;
+        let mut static_memory_pool = StaticMemoryPool::<POOL1_SLOTS_PER_POOL>::new(POOL1_WORDS_PER_SLOT);
+        let mut mm1: MemoryPool = MemoryPool::new(&mut static_memory_pool);
+        let pool1_slot_size = mm1.get_slot_size();
         let mut m = [&mut mm0, &mut mm1];
         let mut allocator= MemoryPoolAllocator::new(&mut m);
 
@@ -129,9 +143,9 @@ pub(super) mod tests {
 
         unsafe{
             for _ in 0..4{     
-                let res0 = allocator.allocate(POOL1_SLOT_SIZE +1);
+                let res0 = allocator.allocate(pool1_slot_size +1);
                 assert_eq!(res0, Err(AllocationError::NoSlotLargeEnough));
-                let res1 = allocator.allocate(POOL0_SLOT_SIZE -1).unwrap();
+                let res1 = allocator.allocate(pool0_slot_size -1).unwrap();
                 let struct0_0 : &mut Struct0 = core::mem::transmute(res1);
                 *struct0_0 = Struct0{d: core::usize::MAX};
 
@@ -140,25 +154,25 @@ pub(super) mod tests {
                 assert_eq!(struct0_0.d, core::usize::MAX);
                 allocator.free(res1).unwrap();
 
-                let res2 = allocator.allocate(POOL1_SLOT_SIZE).unwrap();
+                let res2 = allocator.allocate(pool1_slot_size).unwrap();
                 let struct0_1 : &mut Struct1 = core::mem::transmute(res2);
                 *struct0_1 = Struct1{d0: 0xBBBBBBBBBBBBBBBB, d1: 0xCCCCCCCCCCCCCCCC};
 
-                let res3 = allocator.allocate(POOL1_SLOT_SIZE);
+                let res3 = allocator.allocate(pool1_slot_size);
                 assert_eq!(res3, Err(AllocationError::NoMemoryAvailable));
                 
                 assert_eq!(struct0_1.d0, 0xBBBBBBBBBBBBBBBB);
                 assert_eq!(struct0_1.d1, 0xCCCCCCCCCCCCCCCC);
                 allocator.free(res2).unwrap();
 
-                let res4 = allocator.allocate(POOL1_SLOT_SIZE).unwrap();
+                let res4 = allocator.allocate(pool1_slot_size).unwrap();
                 let struct0_2 : &mut Struct1 = core::mem::transmute(res2);
                 *struct0_2 = Struct1{d0: 0xEEEEEEEEEEEEEEEE, d1: 0x6666666666666666};
 
                 let res5 = allocator.allocate(0);
                 assert_eq!(res5, Err(AllocationError::NullAllocation));
 
-                let res4_1 = allocator.free(res4.add(POOL1_SLOT_SIZE));
+                let res4_1 = allocator.free(res4.add(pool1_slot_size));
                 assert_eq!(res4_1, Err(FreeError::OutOfRangeAddress));
 
                 assert_eq!(struct0_2.d0, 0xEEEEEEEEEEEEEEEE);

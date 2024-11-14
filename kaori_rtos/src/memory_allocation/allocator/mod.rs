@@ -1,4 +1,6 @@
 pub mod memory_pool_allocator;
+use core::borrow::BorrowMut;
+
 use crate::port::{interrupt, Mutex};
 
 pub(crate) type AllocationResult = Result<*mut u8, AllocationError>;
@@ -36,7 +38,7 @@ pub trait  GlobalAllocator<T: LocalAllocator>{
         })
     }
 
-     fn acquire_lock(&self) -> &Mutex<core::cell::RefCell<Option<T>>>;
+    fn acquire_lock(&self) -> &Mutex<core::cell::RefCell<T>>;
 
     fn alloc_op<F, R>(&self, f: F) -> R
     where
@@ -44,13 +46,9 @@ pub trait  GlobalAllocator<T: LocalAllocator>{
     {
         interrupt::free(|cs| {
             let mutex = self.acquire_lock();
-            let mut allocator_opt = mutex.borrow(cs).borrow_mut();
+            let mut allocator = mutex.borrow(cs).borrow_mut();
             
-            if let Some(allocator) = allocator_opt.as_mut() {
-                return f(allocator);
-            } else {
-                panic!("Calling an uninitialized allocator");
-            }
+            return f(allocator.borrow_mut());
         })
     }
 }

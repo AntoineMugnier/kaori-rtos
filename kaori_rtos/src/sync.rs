@@ -13,11 +13,11 @@ impl <T>AsyncRefCell<T>{
         AsyncRefCell{inner :UnsafeCell::new(val), locked: AtomicBool::new(false)}
     }
 
-    pub fn borrow_mut(&self) -> &mut T{
+    pub const fn borrow_mut(&self) -> &mut T{
         unsafe{
-            if self.locked.compare_exchange(false, true, atomic::Ordering::Acquire, atomic::Ordering::Relaxed).is_err(){
-              panic!("Already mutably borrowed")
-            };
+            // if self.locked.compare_exchange(false, true, atomic::Ordering::Acquire, atomic::Ordering::Relaxed).is_err(){
+            //   panic!("Already mutably borrowed")
+            // };
 
             &mut *self.inner.get()
         }

@@ -1,4 +1,3 @@
-//#![feature(const_mut_refs)]
 #![cfg_attr(target_os = "none", no_std)]
 
 mod event;

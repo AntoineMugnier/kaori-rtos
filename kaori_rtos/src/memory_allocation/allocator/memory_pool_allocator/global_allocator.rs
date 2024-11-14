@@ -4,25 +4,20 @@ use crate::{port::{Mutex, interrupt}, memory_allocation::allocator::LocalAllocat
 use core::cell::RefCell;
 
 pub struct GlobalMemoryPoolAllocator<'a>{
-    inner_allocator: Mutex<RefCell<Option<MemoryPoolAllocator<'a>>>>
+    inner_allocator: Mutex<RefCell<MemoryPoolAllocator<'a>>>
 }
 
 // Wrapper of an allocator that offers interior mutability
 impl <'a>GlobalMemoryPoolAllocator<'a>{
-    pub const fn default() -> GlobalMemoryPoolAllocator<'a>{
-        return GlobalMemoryPoolAllocator{inner_allocator: Mutex::new(core::cell::RefCell::new(None))}
-    }
 
-    pub  fn set(&self, memory_pool_array_ref :  GlobalMemoryPoolArrayRef<'a>){
+    pub const fn new(memory_pool_array_ref :  GlobalMemoryPoolArrayRef<'a>) -> GlobalMemoryPoolAllocator<'a>{
          let allocator = MemoryPoolAllocator::new(memory_pool_array_ref.inner_array);
-        interrupt::free(|cs| {
-            self.inner_allocator.borrow(cs).borrow_mut().insert(allocator);
-        })
+        return GlobalMemoryPoolAllocator{inner_allocator: Mutex::new(core::cell::RefCell::new(allocator))}
     }
 }
 
 impl <'a> super::super::GlobalAllocator<MemoryPoolAllocator<'a>> for GlobalMemoryPoolAllocator<'a>{
-    fn acquire_lock(&self) -> &Mutex<core::cell::RefCell<Option<MemoryPoolAllocator<'a>>>> {
+    fn acquire_lock(&self) -> &Mutex<RefCell<MemoryPoolAllocator<'a>>> {
         &self.inner_allocator
     }
 }
@@ -32,19 +27,15 @@ mod test{
 
     use super::*;
     use super::super::global_memory_pool::{GlobalMemoryPool, GlobalStaticPool, GlobalMemoryPoolArray}; 
-     const POOL0_SLOT_SIZE: usize = std::mem::size_of::<usize>();
-     const POOL0_SIZE: usize = 2 * POOL0_SLOT_SIZE;
-    static STATIC_POOL_0 : GlobalStaticPool::<POOL0_SIZE> = GlobalStaticPool::<POOL0_SIZE>::new();
-     
-    static TEST_POOL0: GlobalMemoryPool = GlobalMemoryPool::default();
-    static TEST_POOL_ARRAY_0: GlobalMemoryPoolArray::<1> = GlobalMemoryPoolArray::<1>::default();
-    static TEST_ALLOCATOR0: GlobalMemoryPoolAllocator = GlobalMemoryPoolAllocator::default();
+    const POOL0_WORDS_PER_SLOT: usize = 1;
+    const POOL0_WORDS_PER_POOL: usize = 2 * POOL0_WORDS_PER_SLOT;
+    static STATIC_POOL_0 : GlobalStaticPool::<POOL0_WORDS_PER_POOL> = GlobalStaticPool::new(POOL0_WORDS_PER_SLOT);
+    static TEST_POOL0: GlobalMemoryPool = GlobalMemoryPool::new(STATIC_POOL_0.get());
+    static TEST_POOL_ARRAY: GlobalMemoryPoolArray::<1> = GlobalMemoryPoolArray::<1>::new([&TEST_POOL0]);
+    static TEST_ALLOCATOR0: GlobalMemoryPoolAllocator = GlobalMemoryPoolAllocator::new(TEST_POOL_ARRAY.as_ref());
 
     #[test]
     fn global_allocator_test() {
-        TEST_POOL0.set(STATIC_POOL_0.as_ref(), POOL0_SLOT_SIZE);
-        TEST_POOL_ARRAY_0.set([&TEST_POOL0]);
-        TEST_ALLOCATOR0.set(TEST_POOL_ARRAY_0.as_ref());
     }
 }
 

@@ -18,38 +18,11 @@ pub(crate) enum FreeError {
     UnalignedAddress,
     OutOfRangeAddress
 }
-pub trait LocalAllocator{
 
-unsafe fn allocate(&mut self, size: usize) -> AllocationResult;
-unsafe fn free(&mut self, ptr: *mut u8) -> FreeResult;
-}
+pub trait  GlobalAllocator{
 
-pub trait  GlobalAllocator<T: LocalAllocator>{
+    unsafe fn allocate(&self, size: usize) -> AllocationResult ;
 
-    unsafe fn allocate(&self, size: usize) -> AllocationResult {
-        self.alloc_op(|allocator| {
-            return LocalAllocator::allocate(allocator, size);
-        })
-    }
-
-    unsafe fn free(&self, ptr: *mut u8) -> FreeResult {
-        self.alloc_op(|allocator| {
-            return LocalAllocator::free(allocator, ptr);
-        })
-    }
-
-    fn acquire_lock(&self) -> &Mutex<core::cell::RefCell<T>>;
-
-    fn alloc_op<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut T) -> R,
-    {
-        interrupt::free(|cs| {
-            let mutex = self.acquire_lock();
-            let mut allocator = mutex.borrow(cs).borrow_mut();
-            
-            return f(allocator.borrow_mut());
-        })
-    }
+    unsafe fn free(&self, ptr: *mut u8) -> FreeResult;
 }
 

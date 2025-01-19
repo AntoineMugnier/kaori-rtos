@@ -1,6 +1,7 @@
 use super::allocator::MemoryPoolAllocator;
 use super::global_memory_pool::GlobalMemoryPoolArrayRef;
-use crate::{port::{Mutex, interrupt}, memory_allocation::allocator::LocalAllocator};
+use crate::{port::{Mutex, interrupt}};
+use crate::memory_allocation::allocator::GlobalAllocator;
 use core::cell::RefCell;
 
 pub struct GlobalMemoryPoolAllocator<'a>{
@@ -16,9 +17,9 @@ impl <'a>GlobalMemoryPoolAllocator<'a>{
     }
 }
 
-impl <'a> super::super::GlobalAllocator<MemoryPoolAllocator<'a>> for GlobalMemoryPoolAllocator<'a>{
-    fn acquire_lock(&self) -> &Mutex<RefCell<MemoryPoolAllocator<'a>>> {
-        &self.inner_allocator
+impl <'a> GlobalAllocator for GlobalMemoryPoolAllocator<'a>{
+    unsafe fn free(&self, ptr: *mut u8) -> crate::memory_allocation::allocator::FreeResult {
+        self.inner_allocator
     }
 }
 

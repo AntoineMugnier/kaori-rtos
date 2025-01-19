@@ -1,9 +1,9 @@
 #![cfg_attr(target_os = "none", no_std)]
+#![allow(dead_code)]
 
 mod event;
 mod memory_allocation;
 mod sync;
-
 // #[cfg(
 //     all(
 //         any(target = "thumbv7em-none-eabi"),
@@ -25,6 +25,8 @@ use std_lib_port as port;
 use cortex_m_port as port;
 #[cfg(target_os = "none")]
 mod cortex_m_port;
+
+// mod utils;
 
 #[cfg(test)]
 mod tests {

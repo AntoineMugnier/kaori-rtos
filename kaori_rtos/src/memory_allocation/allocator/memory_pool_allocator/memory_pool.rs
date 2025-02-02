@@ -14,30 +14,33 @@ pub(crate) struct SlotPointer {
 mod types {
     pub type SlotIndex = u16;
     pub type SlotTag = u16;
-    pub const MEM_POOL_TAG_SH: usize = 16;
-    pub const MEM_POOL_TAG_MSK: usize = 0xff00;
-    pub const TAG_MAX_VALUE: u16 = core::u16::MAX;
-    pub const TAG_MIN_VALUE: u16 = 0;
-    pub const MEM_POOL_IDX_SH: usize = 0;
-    pub const MEM_POOL_IDX_MSK: usize = 0x00ff;
-    pub const MEM_POOL_IDX_MAX_VALUE: u16 = core::u16::MAX - 1;
-    pub const MEM_POOL_IDX_MIN_VALUE: u16 = 0;
-    pub const NEXT_NONE: u16 = SlotIndex::MAX;
+    pub const MP_TAG_SH: usize = 16;
+    pub const MP_TAG_MSK: usize = 0xff00;
+    pub const MP_TAG_MAX_VALUE: u16 = core::u16::MAX;
+    pub const MP_TAG_MIN_VALUE: u16 = 0;
+    pub const MP_SLOT_IDX_SH: usize = 0;
+    pub const MP_SLOT_IDX_MSK: usize = 0x00ff;
+    pub const MP_SLOT_IDX_MAX_VAL: u16 = core::u16::MAX - 1;
+    pub const MP_SLOT_IDX_MIN_VAL: u16 = 0;
+    pub const MP_SLOT_IDX_NEXT_NONE: u16 = SlotIndex::MAX;
 }
 
 #[cfg(target_pointer_width = "64")]
 mod types {
     pub type SlotIndex = u32;
+    pub type MemPoolId = u8;
     pub type SlotTag = u32;
-    pub const MEM_POOL_TAG_SH: usize = 32;
-    pub const MEM_POOL_TAG_MSK: usize = 0xffff0000;
-    pub const TAG_MAX_VALUE: u32 = core::u32::MAX;
-    pub const TAG_MIN_VALUE: u32 = 0;
-    pub const MEM_POOL_IDX_SH: usize = 0;
-    pub const MEM_POOL_IDX_MSK: usize = 0x0000ffff;
-    pub const MEM_POOL_IDX_MAX_VALUE: u32 = core::u32::MAX - 1;
-    pub const MEM_POOL_IDX_MIN_VALUE: u32 = 0;
-    pub const NEXT_NONE: u32 = SlotIndex::MAX;
+    pub const MP_ID_SH: usize = 56;
+    pub const MP_ID_MSK: usize = 0xff00000000000000;
+    pub const MP_TAG_SH: usize = 20;
+    pub const MP_TAG_MSK: usize = 0x00fffffffff00000;
+    pub const MP_TAG_MAX_VALUE: SlotTag = (MP_TAG_MSK >> MP_TAG_SH) as u32;
+    pub const MP_TAG_MIN_VALUE: SlotTag = 0;
+    pub const MP_SLOT_IDX_SH: usize = 0;
+    pub const MP_SLOT_IDX_MSK: usize = 0x00000000000fffff;
+    pub const MP_SLOT_IDX_MAX_VAL: SlotIndex = MP_SLOT_IDX_MSK as u32 - 1;
+    pub const MP_SLOT_IDX_MIN_VAL: SlotIndex = 0;
+    pub const MP_SLOT_IDX_NEXT_NONE: SlotIndex = MP_SLOT_IDX_MAX_VAL + 1;
 }
 
 use types::*;
@@ -48,12 +51,15 @@ impl AtomicSlotPointer {
         if let Some(index) = index {
             new_index = index;
         } else {
-            new_index = NEXT_NONE;
+            new_index = MP_SLOT_IDX_NEXT_NONE;
         }
+        let slot_pointer_val = (new_index << MP_SLOT_IDX_SH) as usize & MP_SLOT_IDX_MSK;
+
         AtomicSlotPointer {
-            inner: atomic::AtomicUsize::new(new_index as usize),
+            inner: atomic::AtomicUsize::new(slot_pointer_val),
         }
     }
+
     const fn from(slot_pointer: SlotPointer) -> AtomicSlotPointer {
         AtomicSlotPointer {
             inner: atomic::AtomicUsize::new(slot_pointer.inner as usize),
@@ -84,29 +90,31 @@ impl AtomicSlotPointer {
 
 impl SlotPointer {
     fn increment_tag(&mut self) {
-        let tag_and_index = self.inner;
-        let mut tag = ((tag_and_index & MEM_POOL_TAG_MSK) >> MEM_POOL_TAG_SH) as SlotTag;
-        let index = ((tag_and_index & MEM_POOL_IDX_MSK) >> MEM_POOL_IDX_SH) as SlotIndex;
-        if tag == TAG_MAX_VALUE {
-            tag = TAG_MIN_VALUE;
+        let mut tag = ((self.inner & MP_TAG_MSK) >> MP_TAG_SH) as SlotTag;
+        let index = ((self.inner & MP_SLOT_IDX_MSK) >> MP_SLOT_IDX_SH) as SlotIndex;
+        if tag == MP_TAG_MAX_VALUE {
+            tag = MP_TAG_MIN_VALUE;
         } else {
             tag += 1;
         }
 
         let new_tag_and_index =
-            ((tag as usize) << MEM_POOL_TAG_SH) | ((index as usize) << MEM_POOL_IDX_SH);
+            ((tag as usize) << MP_TAG_SH) | ((index as usize) << MP_SLOT_IDX_SH);
         self.inner = new_tag_and_index;
     }
 
     fn get_index_raw(&self) -> SlotIndex {
-        let tag_and_index = self.inner;
-        (tag_and_index >> MEM_POOL_IDX_SH) as SlotIndex
+        ((self.inner & MP_SLOT_IDX_MSK) >> MP_SLOT_IDX_SH) as SlotIndex
+    }
+    
+    pub(crate) fn set_id(&mut self, id: MemPoolId){
+        self.inner |= (((id as usize) << MP_ID_SH) & MP_ID_MSK) as usize;
     }
 
     fn get_index(&self) -> Option<SlotIndex> {
         let tag_and_index = self.inner;
-        let index = (tag_and_index >> MEM_POOL_IDX_SH) as SlotIndex;
-        if index != NEXT_NONE {
+        let index = (tag_and_index >> MP_SLOT_IDX_SH) as SlotIndex;
+        if index != MP_SLOT_IDX_NEXT_NONE {
             Some(index)
         } else {
             None
@@ -170,7 +178,7 @@ impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
             "Slot pool length must be a multiple of slot size"
         );
         assert!(
-            (WORDS_PER_POOL / words_per_slot) <= (MEM_POOL_IDX_MAX_VALUE + 1) as usize,
+            (WORDS_PER_POOL / words_per_slot) <= (MP_SLOT_IDX_MAX_VAL + 1) as usize,
             "Too many slots in slot pool"
         );
         unsafe {
@@ -183,8 +191,9 @@ impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
         }
     }
 
-    pub const fn get_nb_slots(&self) -> usize {
-        self.sto.borrow().len() / self.words_per_slot
+    pub const fn get_slot_pool_ref(&self) -> AsyncCell<*mut [usize]> {
+            let sto = self.sto.get() as *mut [usize];
+            AsyncCell::new(sto)
     }
 }
 
@@ -192,8 +201,8 @@ struct EmptySlot {
     next: AtomicSlotPointer,
 }
 
-pub(crate) struct MemoryPool<'a> {
-    sto: &'a [usize],
+pub(crate) struct MemoryPool {
+    sto: AsyncCell<*mut [usize]>,
     words_per_slot: usize,
     head: AtomicSlotPointer,
 }
@@ -203,22 +212,28 @@ pub(crate) enum SlotAccessError {
     SlotNone,
 }
 
-impl<'a> MemoryPool<'a> {
+impl MemoryPool {
+    // pub(crate) const fn get_inner(&mut self) -> &mut [usize]{
+    //     &mut self.sto
+    // }
     pub const fn from<const WORDS_PER_POOL: usize>(
-        slot_pool: &'a SlotPool<WORDS_PER_POOL>,
-    ) -> MemoryPool<'a> {
+        slot_pool: & SlotPool<WORDS_PER_POOL>,
+    ) -> MemoryPool {
         MemoryPool {
-            sto: slot_pool.sto.borrow(),
+            sto: slot_pool.get_slot_pool_ref(),
             words_per_slot: slot_pool.words_per_slot,
             head: slot_pool.create_head(),
         }
     }
-    fn get_slot_size(&self) -> usize {
+    pub(crate) const fn get_slot_size(&self) -> usize {
         self.words_per_slot * core::mem::size_of::<usize>()
     }
 
     fn get_nb_slot(&self) -> usize {
-        self.sto.len() / self.words_per_slot
+        unsafe{
+            let sto = &*(*self.sto.get()) as &[usize]; 
+            sto.len() / self.words_per_slot
+        }
     }
 
     pub(crate) fn get_slot_raw_mut(
@@ -226,16 +241,15 @@ impl<'a> MemoryPool<'a> {
         slot_pointer: SlotPointer,
     ) -> Result<*mut u8, SlotAccessError> {
         let slot_index = slot_pointer.get_index_raw();
-        if slot_index >= MEM_POOL_IDX_MIN_VALUE && slot_index < self.get_nb_slot() as SlotIndex {
+        if slot_index >= MP_SLOT_IDX_MIN_VAL && slot_index < self.get_nb_slot() as SlotIndex {
             unsafe {
-                let raw_ptr = self
-                    .sto
-                    .as_ptr()
+                let sto = &mut *(*self.sto.get());
+                let raw_ptr = sto.as_ptr() 
                     .add((slot_index as usize) * self.words_per_slot);
                 Ok(core::mem::transmute(raw_ptr))
             }
         } else {
-            if slot_index == NEXT_NONE {
+            if slot_index == MP_SLOT_IDX_NEXT_NONE {
                 return Err(SlotAccessError::SlotNone);
             } else {
                 return Err(SlotAccessError::SlotOutOfRange);
@@ -272,15 +286,15 @@ impl<'a> MemoryPool<'a> {
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
 
         loop {
-            let head = self.head.load(atomic::Ordering::SeqCst);
+            let head = self.head.load(atomic::Ordering::Relaxed);
             *new_head_slot = EmptySlot {
                 next: AtomicSlotPointer::from(head),
             };
             if let Err(_) = self.head.compare_exchange_weak(
                 head,
                 slot_pointer,
-                atomic::Ordering::SeqCst,
-                atomic::Ordering::SeqCst,
+                atomic::Ordering::Release,
+                atomic::Ordering::Relaxed,
             ) {
                 continue;
             } else {
@@ -295,16 +309,16 @@ impl<'a> MemoryPool<'a> {
         }
 
         loop {
-            let mut head = self.head.load(atomic::Ordering::SeqCst);
+            let mut head = self.head.load(atomic::Ordering::Acquire);
             if let Ok(head_slot) = self.get_slot(head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
-                    let new_head = head_next.load(atomic::Ordering::SeqCst);
+                    let new_head = head_next.load(atomic::Ordering::Relaxed);
                     if let Err(_) = self.head.compare_exchange_weak(
                         head,
                         new_head,
-                        atomic::Ordering::SeqCst,
-                        atomic::Ordering::SeqCst,
+                        atomic::Ordering::Release,
+                        atomic::Ordering::Relaxed,
                     ) {
                         continue;
                     }

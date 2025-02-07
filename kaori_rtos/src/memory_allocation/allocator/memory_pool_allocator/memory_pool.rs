@@ -1,4 +1,4 @@
-use crate::sync::AsyncCell;
+use crate::sync::{AsyncArrayCell, AsyncArrayCellRef};
 use core::result::Result;
 use portable_atomic as atomic;
 struct AtomicSlotPointer {
@@ -137,7 +137,7 @@ pub enum SlotFreeingError {
 type SlotFreeingResult = Result<(), SlotFreeingError>;
 
 pub(crate) struct SlotPool<const WORDS_PER_POOL: usize> {
-    pub(crate) sto: AsyncCell<[usize; WORDS_PER_POOL]>,
+    pub(crate) sto: AsyncArrayCell<usize, WORDS_PER_POOL>,
     pub(crate) words_per_slot: usize,
 }
 
@@ -185,15 +185,14 @@ impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
             let mut sto: [usize; WORDS_PER_POOL] = [0; WORDS_PER_POOL];
             Self::init_pool_slots(&mut sto, words_per_slot, 0);
             SlotPool {
-                sto: AsyncCell::new(sto),
+                sto: AsyncArrayCell::new(sto),
                 words_per_slot,
             }
         }
     }
 
-    pub const fn get_slot_pool_ref(&self) -> AsyncCell<*mut [usize]> {
-            let sto = self.sto.get() as *mut [usize];
-            AsyncCell::new(sto)
+    pub const fn get_slot_pool_ref(&self) -> AsyncArrayCellRef<usize> {
+        self.sto.borrow_mut()
     }
 }
 
@@ -201,8 +200,8 @@ struct EmptySlot {
     next: AtomicSlotPointer,
 }
 
-pub(crate) struct MemoryPool {
-    sto: AsyncCell<*mut [usize]>,
+pub(crate) struct MemoryPool<'a> {
+    sto: AsyncArrayCellRef<'a, usize>,
     words_per_slot: usize,
     head: AtomicSlotPointer,
 }
@@ -212,7 +211,7 @@ pub(crate) enum SlotAccessError {
     SlotNone,
 }
 
-impl MemoryPool {
+impl <'a>MemoryPool<'a> {
     // pub(crate) const fn get_inner(&mut self) -> &mut [usize]{
     //     &mut self.sto
     // }
@@ -230,10 +229,8 @@ impl MemoryPool {
     }
 
     fn get_nb_slot(&self) -> usize {
-        unsafe{
-            let sto = &*(*self.sto.get()) as &[usize]; 
-            sto.len() / self.words_per_slot
-        }
+            // let sto = &*(*self.sto.get()) as &[usize]; 
+            self.sto.len() / self.words_per_slot
     }
 
     pub(crate) fn get_slot_raw_mut(
@@ -243,7 +240,7 @@ impl MemoryPool {
         let slot_index = slot_pointer.get_index_raw();
         if slot_index >= MP_SLOT_IDX_MIN_VAL && slot_index < self.get_nb_slot() as SlotIndex {
             unsafe {
-                let sto = &mut *(*self.sto.get());
+                let sto = self.sto.deref_mut();
                 let raw_ptr = sto.as_ptr() 
                     .add((slot_index as usize) * self.words_per_slot);
                 Ok(core::mem::transmute(raw_ptr))

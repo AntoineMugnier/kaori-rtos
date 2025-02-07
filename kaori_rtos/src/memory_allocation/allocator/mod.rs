@@ -15,7 +15,6 @@ pub(crate) enum AllocationError {
 pub(crate) type FreeResult = Result<(), FreeError>;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FreeError {
-    UnalignedAddress,
     OutOfRangeAddress
 }
 

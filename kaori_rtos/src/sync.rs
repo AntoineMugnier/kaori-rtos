@@ -1,31 +1,62 @@
 pub use core::borrow::Borrow;
 use core::cell::UnsafeCell;
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
 use core::sync::atomic::{self, AtomicBool};
 
-pub struct AsyncCell<T>{
-    inner: UnsafeCell<T>
+pub struct AsyncArrayCell<T, const SIZE : usize>{
+    inner: UnsafeCell<[T; SIZE ]>
 }
-impl <T>AsyncCell<T>{
-    pub const fn new(inner: T) -> AsyncCell<T>{
-        AsyncCell{inner: UnsafeCell::new(inner)}
+
+impl <T, const SIZE : usize>AsyncArrayCell<T, SIZE>{
+    pub const fn new(inner: [T; SIZE]) -> AsyncArrayCell<T, SIZE>{
+        AsyncArrayCell{inner: UnsafeCell::new(inner)}
     }
-    pub const fn borrow<'cs>(&'cs self) -> &'cs T {
-        unsafe { &*self.inner.get() }
+    pub const fn get<'cs>(&'cs self) -> *mut [T] {
+        self.inner.get()
+    }
+    pub const fn borrow_mut(&self) -> AsyncArrayCellRef<T> {
+        AsyncArrayCellRef{inner: self.inner.get(), marker: PhantomData} 
     }
 }
 
-// impl <T>Borrow<T> for AsyncCell<T>{
-//     fn borrow(&self) -> &T {
-//             unsafe { &*self.inner.get() }
+unsafe impl <T, const SIZE : usize > Sync for AsyncArrayCell<T, SIZE>{
+}
+
+pub struct AsyncArrayCellRef<'a, T>{
+    inner: *mut [T],
+    marker: PhantomData<&'a mut T>,
+}
+
+impl <'a, T> AsyncArrayCellRef<'a, T> {
+    pub fn deref_mut(&self) -> &mut [T] {
+        unsafe{
+            self.inner.as_mut().unwrap()
+        }
+    }
+}
+
+unsafe impl <'a, T> Sync for AsyncArrayCellRef<'a, T>{
+}
+
+impl <'a, T>Deref for AsyncArrayCellRef<'a, T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        unsafe{
+           self.inner.as_ref().unwrap() 
+        }
+    }
+}
+
+// impl <'a, T>DerefMut for AsyncArrayCellRef<'a, T> {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         unsafe{
+//             self.inner.as_mut().unwrap()
+//         }
 //     }
 // }
 
-unsafe impl <T: Send>Sync for AsyncCell<T>{
-}
-// pub struct AsyncRefCell<T>{
-//     inner: UnsafeCell<T>,
-//     locked: AtomicBool
-// }
 // unsafe impl <T: Send>Sync for AsyncRefCell<T>{
 // }
 

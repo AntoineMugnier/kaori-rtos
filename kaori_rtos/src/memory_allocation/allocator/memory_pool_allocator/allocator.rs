@@ -1,42 +1,75 @@
-use super::memory_pool::{MemoryPool, SlotFreeingError, SlotAllocError};
-use super::super::{FreeResult, FreeError, AllocationResult, AllocationError, LocalAllocator};
+use super::memory_pool::{MemoryPool, SlotFreeingError, SlotAllocError, SlotPointer};
 
-
-pub(crate) struct MemoryPoolAllocator<'a> {
-    memory_pool_array: &'a mut [&'a mut MemoryPool<'a>],
+pub(crate) type AllocationResult = Result<SlotPointer, AllocationError>;
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AllocationError {
+    NullAllocation,
+    NoMemoryAvailable,
+    NoSlotLargeEnough,
 }
 
+pub(crate) type FreeResult = Result<(), FreeError>;
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FreeError {
+    OutOfRangeAddress
+}
+
+pub(crate) struct MemoryPoolAllocator<'a> {
+    memory_pool_array: &'a [&'a MemoryPool<'a>],
+}
 
 impl<'a> MemoryPoolAllocator<'a> {
     
-    const fn check_memory_pools_order(memory_pool_array: &mut [&mut MemoryPool<'a>], mut bigger_slot_size: usize){
+    const fn check_memory_pools_order(memory_pool_array: &[&MemoryPool<'a>], mut bigger_slot_size: usize){
         match memory_pool_array{
             [] => {},
-            [head, rest @..] =>{
-                assert!(head.words_per_slot != bigger_slot_size, "Memory pools cannot have the same slot size");
-                assert!(head.words_per_slot > bigger_slot_size, "Memory pools must be listed in ascending order");
-                bigger_slot_size = head.words_per_slot;
+            [first, rest @..] =>{
+                assert!( first.get_slot_size() > bigger_slot_size, "Memory pools must be listed in ascending order");
+                bigger_slot_size = first.get_slot_size();
                 Self::check_memory_pools_order(rest, bigger_slot_size)
             }
         }
     }
 
+    const fn set_memory_slot_id(memory_pool: &mut MemoryPool<'a>){
+        match memory_pool{
+            [] => {},
+            [first_slot, rest @..] =>{
+
+                .set_id(memory_pool_id as u8);
+                Self::set_memory_slot_id(rest, bigger_slot_size)
+            }
+        }
+    }
+
+    const fn set_memory_pool_ids(memory_pool_array: &mut [&mut MemoryPool<'a>]){
+        match memory_pool_array{
+            [] => {},
+            [first_pool, rest @..] =>{
+                Self::set_memory_slot_id(rest);
+                Self::set_memory_pool_ids(rest);
+            }
+        }
+    }
     pub const fn new(memory_pool_array: &'a mut [&'a mut MemoryPool<'a>]) -> MemoryPoolAllocator<'a> {
         assert!(memory_pool_array.len() > 0, "At least one memory pool must be defined");
         let bigger_slot_size = 0;
         Self::check_memory_pools_order(memory_pool_array, bigger_slot_size);
+        Self::set_memory_pool_ids(memory_pool_array);
         return MemoryPoolAllocator { memory_pool_array };
     }
 
-    pub(crate) unsafe fn allocate(&mut self, size: usize) -> AllocationResult {
-        
-        if size == 0{
+    pub(crate) unsafe fn allocate(&mut self, layout: core::alloc::Layout) -> AllocationResult {
+        if layout.size() == 0{
             return Err(AllocationError::NullAllocation);
         }
 
-        for memory_pool in self.memory_pool_array.iter_mut() {
-            match memory_pool.try_allocate_slot(size){
-                Result::Ok(address) => return Ok(core::mem::transmute(address)),
+        for (memory_pool_id, memory_pool) in self.memory_pool_array.iter().enumerate() {
+            match memory_pool.try_allocate_slot(layout){
+                Result::Ok(mut slot_pointer) => {
+                    slot_pointer.set_id(memory_pool_id as u8);
+                    return Ok(slot_pointer)
+                },
                 Result::Err(err) => match err {
                     SlotAllocError::SlotNotLargeEnough => continue,
                     SlotAllocError::PoolFull => return Err(AllocationError::NoMemoryAvailable)
@@ -46,26 +79,17 @@ impl<'a> MemoryPoolAllocator<'a> {
         return Err(AllocationError::NoSlotLargeEnough);
     }
 
-    pub(crate) unsafe fn free(&mut self, ptr: *mut u8) -> FreeResult {
-        for memory_pool in self.memory_pool_array.iter_mut() {
+    pub(crate) unsafe fn free(&mut self, ptr: *mut u8) -> FreeResult{
+        for memory_pool in self.memory_pool_array.iter() {
             let ptr = core::mem::transmute(ptr);
             match memory_pool.try_free_slot(ptr) {
                 Result::Ok(()) => return Ok(()),
                 Result::Err(err) => match err {
                     SlotFreeingError::SlotOutOfRange => continue,
-                    SlotFreeingError::UnalignedSlot => return Err(FreeError::UnalignedAddress)
                 },
             }
         }
         return Err(FreeError::OutOfRangeAddress)
-    }
-}
-impl <'a> LocalAllocator for MemoryPoolAllocator<'a>{
-    unsafe fn free(&mut self, ptr: *mut u8) -> crate::memory_allocation::allocator::FreeResult {
-       MemoryPoolAllocator::free(self, ptr)
-    }
-    unsafe fn allocate(&mut self, size: usize) -> AllocationResult {
-        MemoryPoolAllocator::allocate(self, size)
     }
 }
 

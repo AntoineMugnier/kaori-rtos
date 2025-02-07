@@ -2,6 +2,7 @@ use super::allocator::MemoryPoolAllocator;
 use super::global_memory_pool::GlobalMemoryPoolArrayRef;
 use crate::{port::{Mutex, interrupt}};
 use crate::memory_allocation::allocator::GlobalAllocator;
+use crate::sync::AsyncCell;
 use core::cell::RefCell;
 
 pub struct GlobalMemoryPoolAllocator<'a>{

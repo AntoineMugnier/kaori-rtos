@@ -11,7 +11,7 @@ pub(crate) struct SlotPointer {
 }
 
 #[cfg(target_pointer_width = "32")]
-mod types {
+pub mod types {
     pub type SlotIndex = u16;
     pub type SlotTag = u16;
     pub const MP_TAG_SH: usize = 16;
@@ -26,7 +26,7 @@ mod types {
 }
 
 #[cfg(target_pointer_width = "64")]
-mod types {
+pub mod types {
     pub type SlotIndex = u32;
     pub type MemPoolId = u8;
     pub type SlotTag = u32;
@@ -46,14 +46,16 @@ mod types {
 use types::*;
 
 impl AtomicSlotPointer {
-    const fn new(index: Option<SlotIndex>) -> AtomicSlotPointer {
+    const fn new(pool_id: MemPoolId, index: Option<SlotIndex>) -> AtomicSlotPointer {
         let new_index;
         if let Some(index) = index {
             new_index = index;
         } else {
             new_index = MP_SLOT_IDX_NEXT_NONE;
         }
-        let slot_pointer_val = (new_index << MP_SLOT_IDX_SH) as usize & MP_SLOT_IDX_MSK;
+        let slot_index = ((new_index as usize) << MP_SLOT_IDX_SH) & MP_SLOT_IDX_MSK;
+        let mem_pool_id = ((pool_id as usize) << MP_ID_SH) & MP_ID_MSK;
+        let slot_pointer_val = slot_index | mem_pool_id;
 
         AtomicSlotPointer {
             inner: atomic::AtomicUsize::new(slot_pointer_val),
@@ -89,6 +91,14 @@ impl AtomicSlotPointer {
 }
 
 impl SlotPointer {
+    const fn from(raw_slot_pointer: usize) -> SlotPointer{
+        SlotPointer{inner: raw_slot_pointer}
+    }
+
+    pub(crate) const fn get_mem_pool_id(&self) -> MemPoolId{
+        ((self.inner & MP_ID_MSK) >> MP_ID_SH ) as u8
+    }
+
     fn increment_tag(&mut self) {
         let mut tag = ((self.inner & MP_TAG_MSK) >> MP_TAG_SH) as SlotTag;
         let index = ((self.inner & MP_SLOT_IDX_MSK) >> MP_SLOT_IDX_SH) as SlotIndex;
@@ -107,10 +117,6 @@ impl SlotPointer {
         ((self.inner & MP_SLOT_IDX_MSK) >> MP_SLOT_IDX_SH) as SlotIndex
     }
     
-    pub(crate) fn set_id(&mut self, id: MemPoolId){
-        self.inner |= (((id as usize) << MP_ID_SH) & MP_ID_MSK) as usize;
-    }
-
     fn get_index(&self) -> Option<SlotIndex> {
         let tag_and_index = self.inner;
         let index = (tag_and_index >> MP_SLOT_IDX_SH) as SlotIndex;
@@ -139,12 +145,13 @@ type SlotFreeingResult = Result<(), SlotFreeingError>;
 pub(crate) struct SlotPool<const WORDS_PER_POOL: usize> {
     pub(crate) sto: AsyncArrayCell<usize, WORDS_PER_POOL>,
     pub(crate) words_per_slot: usize,
+    pub(crate) pool_id: MemPoolId
 }
 
 const NEXT_SLOT_NONE: usize = core::usize::MAX;
 
 impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
-    const unsafe fn init_pool_slots(sto: &mut [usize], words_per_slot: usize, idx: usize) {
+    const unsafe fn init_pool_slots(sto: &mut [usize], words_per_slot: usize, pool_id: MemPoolId, idx: usize) {
         match sto {
             [] => {}
             [head, rest @ ..] => {
@@ -152,25 +159,26 @@ impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
                     if rest.len() == words_per_slot - 1 {
                         let empty_slot: &mut EmptySlot = core::mem::transmute(head);
                         *empty_slot = EmptySlot {
-                            next: AtomicSlotPointer::new(None),
+                            next: AtomicSlotPointer::new(pool_id, None),
                         };
                     } else {
                         let empty_slot: &mut EmptySlot = core::mem::transmute(head);
                         let slot_index = (idx + words_per_slot) as SlotIndex;
                         *empty_slot = EmptySlot {
-                            next: AtomicSlotPointer::new(Some(slot_index)),
+                            next: AtomicSlotPointer::new(pool_id,Some(slot_index)),
                         };
                     }
                 }
-                Self::init_pool_slots(rest, words_per_slot, idx + 1);
+                Self::init_pool_slots(rest, words_per_slot, pool_id, idx + 1);
             }
         }
     }
+
     const fn create_head(&self) -> AtomicSlotPointer {
-        AtomicSlotPointer::new(Some(0))
+        AtomicSlotPointer::new(self.pool_id, Some(0))
     }
 
-    pub const fn new(words_per_slot: usize) -> SlotPool<WORDS_PER_POOL> {
+    pub const fn new(words_per_slot: usize, pool_id: MemPoolId) -> SlotPool<WORDS_PER_POOL> {
         assert!(words_per_slot > 0, "Slot size cannot be null");
         assert!(WORDS_PER_POOL > 0, "Slot pool length cannot be null");
         assert!(
@@ -183,10 +191,11 @@ impl<const WORDS_PER_POOL: usize> SlotPool<WORDS_PER_POOL> {
         );
         unsafe {
             let mut sto: [usize; WORDS_PER_POOL] = [0; WORDS_PER_POOL];
-            Self::init_pool_slots(&mut sto, words_per_slot, 0);
+            Self::init_pool_slots(&mut sto, words_per_slot, pool_id,  0);
             SlotPool {
                 sto: AsyncArrayCell::new(sto),
                 words_per_slot,
+                pool_id
             }
         }
     }
@@ -201,6 +210,7 @@ struct EmptySlot {
 }
 
 pub(crate) struct MemoryPool<'a> {
+    id: MemPoolId,
     sto: AsyncArrayCellRef<'a, usize>,
     words_per_slot: usize,
     head: AtomicSlotPointer,
@@ -215,10 +225,16 @@ impl <'a>MemoryPool<'a> {
     // pub(crate) const fn get_inner(&mut self) -> &mut [usize]{
     //     &mut self.sto
     // }
+    
+    pub const fn get_mem_pool_id(&self) -> MemPoolId {
+        self.id    
+    }
+
     pub const fn from<const WORDS_PER_POOL: usize>(
         slot_pool: & SlotPool<WORDS_PER_POOL>,
     ) -> MemoryPool {
         MemoryPool {
+            id: slot_pool.pool_id,
             sto: slot_pool.get_slot_pool_ref(),
             words_per_slot: slot_pool.words_per_slot,
             head: slot_pool.create_head(),
@@ -332,11 +348,11 @@ impl <'a>MemoryPool<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    const POOL0_ID : MemPoolId = 0;
     const POOL0_WORDS_PER_SLOT: usize = 1;
     const POOL0_SLOTS_PER_POOL: usize = 2;
     static STATIC_MEMORY_POOL: SlotPool<POOL0_SLOTS_PER_POOL> =
-        SlotPool::<POOL0_SLOTS_PER_POOL>::new(POOL0_WORDS_PER_SLOT);
+        SlotPool::<POOL0_SLOTS_PER_POOL>::new(POOL0_WORDS_PER_SLOT, POOL0_ID);
     static MEMORY_POOL_0: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL);
 
     #[test]

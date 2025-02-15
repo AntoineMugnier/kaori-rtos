@@ -30,9 +30,9 @@ pub struct AsyncArrayCellRef<'a, T>{
 }
 
 impl <'a, T> AsyncArrayCellRef<'a, T> {
-    pub fn deref_mut(&self) -> &mut [T] {
+    pub const unsafe fn deref_mut(&self) -> &mut [T] {
         unsafe{
-            self.inner.as_mut().unwrap()
+            &mut *self.inner
         }
     }
 }

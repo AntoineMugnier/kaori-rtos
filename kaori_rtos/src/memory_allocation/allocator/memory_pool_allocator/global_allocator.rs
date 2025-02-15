@@ -29,6 +29,7 @@ mod test{
 
     use super::*;
     use super::super::global_memory_pool::{GlobalMemoryPool, GlobalStaticPool, GlobalMemoryPoolArray}; 
+    const POOL0_ID : MemPoolId = 0;
     const POOL0_WORDS_PER_SLOT: usize = 1;
     const POOL0_WORDS_PER_POOL: usize = 2 * POOL0_WORDS_PER_SLOT;
     static STATIC_POOL_0 : GlobalStaticPool::<POOL0_WORDS_PER_POOL> = GlobalStaticPool::new(POOL0_WORDS_PER_SLOT);

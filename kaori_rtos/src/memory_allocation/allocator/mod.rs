@@ -1,27 +1,9 @@
+use core::fmt::Debug;
+
 pub mod memory_pool_allocator;
-use core::borrow::BorrowMut;
 
-use crate::port::{interrupt, Mutex};
 
-pub(crate) type AllocationResult = Result<*mut u8, AllocationError>;
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum AllocationError {
-    NullAllocation,
-    NoMemoryAvailable,
-    NoSlotLargeEnough,
+pub trait Allocator<PointerType, FreeErrorType: Debug, AllocationErrorType: Debug>{
+    fn allocate(&self, layout: core::alloc::Layout) -> Result<PointerType, AllocationErrorType>;
+    unsafe fn free(&self, slot_pointer: PointerType) -> Result<(), FreeErrorType>;
 }
-
-pub(crate) type FreeResult = Result<(), FreeError>;
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum FreeError {
-    OutOfRangeAddress
-}
-
-pub trait  GlobalAllocator{
-
-    unsafe fn allocate(&self, size: usize) -> AllocationResult ;
-
-    unsafe fn free(&self, ptr: *mut u8) -> FreeResult;
-}
-

@@ -1,6 +1,7 @@
 use crate::sync::{AsyncArrayCell, AsyncArrayCellRef};
 use core::result::Result;
 use portable_atomic as atomic;
+use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 struct AtomicSlotPointer {
     inner: atomic::AtomicUsize,
 }
@@ -291,12 +292,12 @@ impl<'a> MemoryPool<'a> {
         }
     }
 
-    fn get_slot(&self, slot_pointer: SlotPointer) -> Result<*const EmptySlot, SlotAccessError> {
+    fn get_empty_slot(&self, slot_pointer: SlotPointer) -> Result<*const EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *const EmptySlot)
     }
 
-    fn get_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut EmptySlot, SlotAccessError> {
+    fn get_empty_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *mut EmptySlot)
     }
@@ -304,7 +305,7 @@ impl<'a> MemoryPool<'a> {
     pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
         println!("Freeing  slot {}", slot_pointer.get_index().unwrap());
         let new_head_slot = self
-            .get_slot_mut(slot_pointer)
+            .get_empty_slot_mut(slot_pointer)
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
         loop {
             let head = self.head.load(atomic::Ordering::Relaxed);
@@ -333,7 +334,7 @@ impl<'a> MemoryPool<'a> {
             let mut head = self.head.load(atomic::Ordering::Acquire);
 
             println!("Allocating slot {}", head.get_index().unwrap());
-            if let Ok(head_slot) = self.get_slot(head) {
+            if let Ok(head_slot) = self.get_empty_slot(head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
                     let new_head = head_next.load(atomic::Ordering::Relaxed);
@@ -356,13 +357,18 @@ impl<'a> MemoryPool<'a> {
     }
 }
 
+impl<'a> MemoryAccessor<SlotPointer> for MemoryPool<'a> {
+    fn get_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut u8, ()> {
+        self.get_slot_raw_mut(slot_pointer).map_err(|_| ())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::marker::PhantomData;
 
     use rand::Rng;
 
-    use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 
     use super::super::super::Allocator;
     use super::*;
@@ -447,14 +453,6 @@ mod tests {
         }
     }
 
-    impl<'a> MemoryAccessor<SlotPointer> for MemoryPool<'a> {
-        unsafe fn get_slot_transmute<T>(&self, slot_pointer: SlotPointer) -> Result<&mut T, ()> {
-            self.get_slot_transmute(slot_pointer)
-        }
-        fn get_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut u8, ()> {
-            self.get_slot_raw_mut(slot_pointer).map_err(|_| ())
-        }
-    }
 
     struct Tester<
         'a,

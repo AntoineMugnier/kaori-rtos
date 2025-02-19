@@ -303,7 +303,7 @@ impl<'a> MemoryPool<'a> {
     }
 
     pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
-        println!("Freeing  slot {}", slot_pointer.get_index().unwrap());
+        println!("Freeing  slot {:?}", slot_pointer.get_index());
         let new_head_slot = self
             .get_empty_slot_mut(slot_pointer)
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
@@ -333,7 +333,7 @@ impl<'a> MemoryPool<'a> {
         loop {
             let mut head = self.head.load(atomic::Ordering::Acquire);
 
-            println!("Allocating slot {}", head.get_index().unwrap());
+            println!("Allocating slot {:?}", head.get_index());
             if let Ok(head_slot) = self.get_empty_slot(head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
@@ -377,7 +377,8 @@ mod tests {
         use super::*;
         const POOL0_ID: MemPoolId = 0;
         const POOL0_WORDS_PER_SLOT: usize = 1;
-        const POOL0_WORDS_PER_POOL: usize = 2;
+        const POOL0_SLOTS_PER_POOL: usize = 2;
+        const POOL0_WORDS_PER_POOL: usize = POOL0_SLOTS_PER_POOL * POOL0_WORDS_PER_SLOT;
         static STATIC_MEMORY_POOL: SlotPool<POOL0_WORDS_PER_POOL> =
             SlotPool::<POOL0_WORDS_PER_POOL>::new(POOL0_WORDS_PER_SLOT, POOL0_ID);
         static MEMORY_POOL_0: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL);

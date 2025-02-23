@@ -1,7 +1,7 @@
+use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 use crate::sync::{AsyncArrayCell, AsyncArrayCellRef};
 use core::result::Result;
 use portable_atomic as atomic;
-use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 struct AtomicSlotPointer {
     inner: atomic::AtomicUsize,
 }
@@ -292,18 +292,24 @@ impl<'a> MemoryPool<'a> {
         }
     }
 
-    fn get_empty_slot(&self, slot_pointer: SlotPointer) -> Result<*const EmptySlot, SlotAccessError> {
+    fn get_empty_slot(
+        &self,
+        slot_pointer: SlotPointer,
+    ) -> Result<*const EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *const EmptySlot)
     }
 
-    fn get_empty_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut EmptySlot, SlotAccessError> {
+    fn get_empty_slot_mut(
+        &self,
+        slot_pointer: SlotPointer,
+    ) -> Result<*mut EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *mut EmptySlot)
     }
 
     pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
-        println!("Freeing  slot {:?}", slot_pointer.get_index());
+        println!("pool {}: Freeing  slot {:?}",self.id,  slot_pointer.get_index());
         let new_head_slot = self
             .get_empty_slot_mut(slot_pointer)
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
@@ -333,7 +339,7 @@ impl<'a> MemoryPool<'a> {
         loop {
             let mut head = self.head.load(atomic::Ordering::Acquire);
 
-            println!("Allocating slot {:?}", head.get_index());
+            println!("pool {}: Allocating slot {:?}", self.id,  head.get_index());
             if let Ok(head_slot) = self.get_empty_slot(head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
@@ -364,11 +370,10 @@ impl<'a> MemoryAccessor<SlotPointer> for MemoryPool<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use core::marker::PhantomData;
 
     use rand::Rng;
-
 
     use super::super::super::Allocator;
     use super::*;
@@ -454,8 +459,7 @@ mod tests {
         }
     }
 
-
-    struct Tester<
+    pub(crate) struct Tester<
         'a,
         FreeErrorType: core::fmt::Debug,
         AllocationErrorType: core::fmt::Debug,
@@ -466,7 +470,7 @@ mod tests {
             + MemoryAccessor<SlotPointer>,
     {
         allocator: &'a AllocatorType,
-        reference_allocator: Vec<(Vec<u8>, SlotPointer)>,
+        reference_allocator: Vec<Vec<(Vec<u8>, SlotPointer)>>,
         phantom_free_err: PhantomData<FreeErrorType>,
         phantom_alloc_err: PhantomData<AllocationErrorType>,
     }
@@ -479,7 +483,7 @@ mod tests {
                 + MemoryAccessor<SlotPointer>,
         > Tester<'a, FreeErrorType, AllocationErrorType, AllocatorType>
     {
-        fn new(
+        pub(crate) fn new(
             allocator: &'a AllocatorType,
         ) -> Tester<'a, FreeErrorType, AllocationErrorType, AllocatorType> {
             Self {
@@ -490,56 +494,74 @@ mod tests {
             }
         }
 
-        unsafe fn allocate(&mut self, element: &mut [u8]) {
+        pub(crate) unsafe fn allocate(&mut self, pool_idx: usize, element: &mut [u8]) {
+            println!("Allocating for {}", pool_idx);
             let layout = core::alloc::Layout::array::<u8>(element.len()).unwrap();
             let pointer = self.allocator.allocate(layout).unwrap();
 
             let element_slot = self.allocator.get_slot_mut(pointer).unwrap();
             element_slot.copy_from_nonoverlapping(element.as_ptr(), element.len());
-            self.reference_allocator.push((element.to_vec(), pointer));
+            self.reference_allocator[pool_idx].push((element.to_vec(), pointer));
         }
 
-        fn free(&mut self, element_index: usize) {
-            let (_, slot_pointer) = self.reference_allocator.remove(element_index);
+        pub(crate) fn free(&mut self, pool_idx: usize, element_index: usize) {
+            let (_, slot_pointer) = self.reference_allocator[pool_idx].remove(element_index);
             unsafe {
                 self.allocator.free(slot_pointer).unwrap();
             }
         }
 
-        fn run_integrity_check(&mut self) {
-            for (reference_element, pointer) in self.reference_allocator.iter() {
-                let element_slot = self.allocator.get_slot_mut(*pointer).unwrap();
-                for i in 0..reference_element.len() {
-                    unsafe {
-                        let val = *element_slot.offset(i as isize);
-                        assert!(val == reference_element[i]);
+        pub(crate) fn run_integrity_check(&mut self) {
+            for reference_pool_allocator in self.reference_allocator.iter() {
+                for (reference_element, pointer) in reference_pool_allocator {
+                    let element_slot = self.allocator.get_slot_mut(*pointer).unwrap();
+                    for i in 0..reference_element.len() {
+                        unsafe {
+                            let val = *element_slot.offset(i as isize);
+                            assert!(val == reference_element[i]);
+                        }
                     }
                 }
             }
         }
 
-        fn run(&mut self, tp: TestParams) {
+         fn get_previous_pool_max_element_size(&self,index: usize, tp: &TestParams) -> usize {
+            if index == 0{
+                 1
+            }
+            else{
+                tp.pool_test_params[index -1].max_element_size + 1
+            }
+        }
+        pub(crate) fn run(&mut self, tp: TestParams) {
             let mut rng = rand::rng();
 
             //Fill the pool
             println!("Initial filling of the pool");
-            for _ in 0..tp.n_initial_elements {
-                let generated_element_size = rng.random_range(..tp.max_element_size);
-                let mut generated_element: Vec<_> = (&mut rng)
-                    .random_iter::<u8>()
-                    .take(generated_element_size)
-                    .collect();
-                unsafe {
-                    self.allocate(generated_element.as_mut_slice());
+            for (pool_idx, pool_param) in tp.pool_test_params.iter().enumerate() {
+                self.reference_allocator.push(Vec::new());
+                let min_element_size = self.get_previous_pool_max_element_size(pool_idx, &tp);
+                for _ in 0..pool_param.n_initial_elements {
+                    let generated_element_size = rng.random_range(min_element_size..pool_param.max_element_size);
+                    let mut generated_element: Vec<_> = (&mut rng)
+                        .random_iter::<u8>()
+                        .take(generated_element_size)
+                        .collect();
+                    unsafe {
+                        self.allocate(pool_idx, generated_element.as_mut_slice());
+                    }
                 }
             }
+
             self.run_integrity_check();
 
             println!("Test loop");
             for _ in 0..tp.n_iterations {
-                let n_elements_allocated = self.reference_allocator.len();
+                let picked_tp_i = rng.random_range(..tp.pool_test_params.len());
+                let n_elements_allocated = self.reference_allocator[picked_tp_i].len();
+                let picked_tp = &tp.pool_test_params[picked_tp_i];
                 let should_allocate;
-                if n_elements_allocated == tp.max_n_elements {
+                if n_elements_allocated == picked_tp.max_n_elements {
                     should_allocate = false;
                 } else if n_elements_allocated == 0 {
                     should_allocate = true;
@@ -548,28 +570,34 @@ mod tests {
                 }
 
                 if should_allocate {
-                    let generated_element_size = rng.random_range(..tp.max_element_size);
+                    let min_element_size = self.get_previous_pool_max_element_size(picked_tp_i, &tp);
+
+
+                    let generated_element_size = rng.random_range(min_element_size..picked_tp.max_element_size);
                     let mut generated_element: Vec<_> = (&mut rng)
                         .random_iter::<u8>()
                         .take(generated_element_size)
                         .collect();
                     unsafe {
-                        self.allocate(generated_element.as_mut_slice());
+                        self.allocate(picked_tp_i, generated_element.as_mut_slice());
                     }
                 } else {
                     let element_index = rng.random_range(..n_elements_allocated);
-                    self.free(element_index)
+                    self.free(picked_tp_i, element_index)
                 }
             }
             self.run_integrity_check();
         }
     }
 
-    struct TestParams {
-        max_n_elements: usize,
-        max_element_size: usize,
-        n_initial_elements: usize,
-        n_iterations: usize,
+    pub(crate) struct PoolTestParams {
+        pub max_n_elements: usize,
+        pub max_element_size: usize,
+        pub n_initial_elements: usize,
+    }
+    pub(crate) struct TestParams<'a> {
+        pub pool_test_params: &'a [PoolTestParams],
+        pub n_iterations: usize,
     }
 
     mod single_thread_randomized {
@@ -584,11 +612,15 @@ mod tests {
 
         #[test]
         fn single_thread_randomized() {
-            let test_params = TestParams {
+            let pool_test_params = [PoolTestParams {
                 max_n_elements: POOL0_SLOT_PER_POOL,
                 max_element_size: POOL0_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
                 n_initial_elements: 10,
-                n_iterations: 100,
+            }];
+
+            let test_params = TestParams {
+                pool_test_params: &pool_test_params,
+                n_iterations: 10000,
             };
 
             let mut tester = Tester::new(&MEMORY_POOL_0);

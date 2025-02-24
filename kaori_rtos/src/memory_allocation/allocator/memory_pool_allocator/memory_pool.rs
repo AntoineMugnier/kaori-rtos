@@ -6,12 +6,12 @@ struct AtomicSlotPointer {
     inner: atomic::AtomicUsize,
 }
 
-//TODO SLOT POINTER should not be copiable
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) struct SlotPointer {
     inner: usize,
 }
 
+//TODO adjust
 #[cfg(target_pointer_width = "32")]
 pub mod types {
     pub type SlotIndex = u16;
@@ -259,7 +259,7 @@ impl<'a> MemoryPool<'a> {
 
     pub(crate) fn get_slot_raw_mut(
         &self,
-        slot_pointer: SlotPointer,
+        slot_pointer: &SlotPointer,
     ) -> Result<*mut u8, SlotAccessError> {
         let slot_index = slot_pointer.get_index_raw();
         if slot_index >= MP_SLOT_IDX_MIN_VAL && slot_index < self.get_nb_slot() as SlotIndex {
@@ -282,7 +282,7 @@ impl<'a> MemoryPool<'a> {
     // Get a slot from the memory pool using a SlotPointer object
     pub(crate) unsafe fn get_slot_transmute<T>(
         &self,
-        slot_pointer: SlotPointer,
+        slot_pointer: &SlotPointer,
     ) -> Result<&mut T, ()> {
         let slot_mem_ptr_res = self.get_slot_raw_mut(slot_pointer);
         if let Ok(slot_mem_ptr) = slot_mem_ptr_res {
@@ -294,7 +294,7 @@ impl<'a> MemoryPool<'a> {
 
     fn get_empty_slot(
         &self,
-        slot_pointer: SlotPointer,
+        slot_pointer: &SlotPointer,
     ) -> Result<*const EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *const EmptySlot)
@@ -302,7 +302,7 @@ impl<'a> MemoryPool<'a> {
 
     fn get_empty_slot_mut(
         &self,
-        slot_pointer: SlotPointer,
+        slot_pointer: &SlotPointer,
     ) -> Result<*mut EmptySlot, SlotAccessError> {
         self.get_slot_raw_mut(slot_pointer)
             .map(|x: *mut u8| x as *mut EmptySlot)
@@ -311,7 +311,7 @@ impl<'a> MemoryPool<'a> {
     pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
         println!("pool {}: Freeing  slot {:?}",self.id,  slot_pointer.get_index());
         let new_head_slot = self
-            .get_empty_slot_mut(slot_pointer)
+            .get_empty_slot_mut(&slot_pointer)
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
         loop {
             let head = self.head.load(atomic::Ordering::Relaxed);
@@ -340,7 +340,7 @@ impl<'a> MemoryPool<'a> {
             let mut head = self.head.load(atomic::Ordering::Acquire);
 
             println!("pool {}: Allocating slot {:?}", self.id,  head.get_index());
-            if let Ok(head_slot) = self.get_empty_slot(head) {
+            if let Ok(head_slot) = self.get_empty_slot(&head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
                     let new_head = head_next.load(atomic::Ordering::Relaxed);
@@ -364,7 +364,7 @@ impl<'a> MemoryPool<'a> {
 }
 
 impl<'a> MemoryAccessor<SlotPointer> for MemoryPool<'a> {
-    fn get_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut u8, ()> {
+    fn get_slot_mut(&self, slot_pointer: &SlotPointer) -> Result<*mut u8, ()> {
         self.get_slot_raw_mut(slot_pointer).map_err(|_| ())
     }
 }
@@ -401,14 +401,14 @@ pub mod tests {
 
                 let res0 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
                 let res0 = res0.unwrap();
-                let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(res0).unwrap();
+                let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
                 *struct0_0 = Struct0 {
                     a: core::usize::MAX,
                 };
 
                 let res1 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
                 let res1 = res1.unwrap();
-                let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(res1).unwrap();
+                let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
                 *struct0_1 = Struct0 {
                     a: core::usize::MIN,
                 };
@@ -433,7 +433,7 @@ pub mod tests {
 
                 let res4 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
                 let res4 = res4.unwrap();
-                let struct0_4: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(res4).unwrap();
+                let struct0_4: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res4).unwrap();
                 *struct0_4 = Struct0 {
                     a: 0xAAAAAAAAAAAAAAAA,
                 };
@@ -499,7 +499,7 @@ pub mod tests {
             let layout = core::alloc::Layout::array::<u8>(element.len()).unwrap();
             let pointer = self.allocator.allocate(layout).unwrap();
 
-            let element_slot = self.allocator.get_slot_mut(pointer).unwrap();
+            let element_slot = self.allocator.get_slot_mut(&pointer).unwrap();
             element_slot.copy_from_nonoverlapping(element.as_ptr(), element.len());
             self.reference_allocator[pool_idx].push((element.to_vec(), pointer));
         }
@@ -514,7 +514,7 @@ pub mod tests {
         pub(crate) fn run_integrity_check(&mut self) {
             for reference_pool_allocator in self.reference_allocator.iter() {
                 for (reference_element, pointer) in reference_pool_allocator {
-                    let element_slot = self.allocator.get_slot_mut(*pointer).unwrap();
+                    let element_slot = self.allocator.get_slot_mut(&pointer).unwrap();
                     for i in 0..reference_element.len() {
                         unsafe {
                             let val = *element_slot.offset(i as isize);

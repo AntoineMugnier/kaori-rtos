@@ -58,7 +58,7 @@ impl<'a> MemoryPoolAllocator<'a> {
 
     fn get_slot_mut(&self, slot_pointer: &SlotPointer) -> Result<*mut u8, ()> {
         let memory_pool_id = slot_pointer.get_mem_pool_id();
-        self.memory_pool_array[memory_pool_id as usize].get_slot_mut(*slot_pointer)
+        self.memory_pool_array[memory_pool_id as usize].get_slot_mut(slot_pointer)
     }
 
     fn allocate(&self, layout: core::alloc::Layout) -> AllocationResult {
@@ -109,8 +109,8 @@ impl<'a> Allocator<SlotPointer, FreeError, AllocationError> for MemoryPoolAlloca
 }
 
 impl<'a> MemoryAccessor<SlotPointer> for MemoryPoolAllocator<'a> {
-    fn get_slot_mut(&self, slot_pointer: SlotPointer) -> Result<*mut u8, ()> {
-        self.get_slot_mut(&slot_pointer).map_err(|_| ())
+    fn get_slot_mut(&self, slot_pointer: &SlotPointer) -> Result<*mut u8, ()> {
+        self.get_slot_mut(slot_pointer).map_err(|_| ())
     }
 }
 
@@ -148,14 +148,14 @@ pub(super) mod tests {
                 for _ in 0..4 {
                     let res0 = ALLOCATOR_0.allocate(Layout::new::<Struct0>());
                     let res0 = res0.unwrap();
-                    let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(res0).unwrap();
+                    let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
                     *struct0_0 = Struct0 {
                         a: core::usize::MAX,
                     };
 
                     let res1 = ALLOCATOR_0.allocate(Layout::new::<Struct0>());
                     let res1 = res1.unwrap();
-                    let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(res1).unwrap();
+                    let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
                     *struct0_1 = Struct0 {
                         a: core::usize::MIN,
                     };

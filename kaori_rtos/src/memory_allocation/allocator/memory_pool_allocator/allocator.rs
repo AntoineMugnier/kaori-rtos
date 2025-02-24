@@ -66,7 +66,7 @@ impl<'a> MemoryPoolAllocator<'a> {
             return Err(AllocationError::NullAllocation);
         }
 
-        if layout.size() > self.memory_pool_array.last().unwrap().get_slot_size(){
+        if layout.size() > self.memory_pool_array.last().unwrap().get_slot_size() {
             return Err(AllocationError::NoSlotLargeEnough);
         }
 
@@ -79,7 +79,7 @@ impl<'a> MemoryPoolAllocator<'a> {
                 },
             }
         }
-        return Err(AllocationError::NoMemoryAvailable)
+        return Err(AllocationError::NoMemoryAvailable);
     }
 
     unsafe fn free(&self, slot_pointer: SlotPointer) -> FreeResult {
@@ -181,7 +181,7 @@ pub(super) mod tests {
     }
 
     mod single_thread_randomized {
-        
+
         use crate::memory_allocation::allocator::memory_pool_allocator::memory_pool::tests::PoolTestParams;
 
         use super::*;
@@ -209,27 +209,29 @@ pub(super) mod tests {
             SlotPool::<POOL2_WORDS_PER_POOL>::new(POOL2_WORDS_PER_SLOT, POOL2_ID);
         static MEMORY_POOL_2: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL_2);
 
-        static MEMORY_POOL_ARRAY_0: [&MemoryPool; 3] = [&MEMORY_POOL_0, &MEMORY_POOL_1, &MEMORY_POOL_2];
+        static MEMORY_POOL_ARRAY_0: [&MemoryPool; 3] =
+            [&MEMORY_POOL_0, &MEMORY_POOL_1, &MEMORY_POOL_2];
         static ALLOCATOR_0: MemoryPoolAllocator = MemoryPoolAllocator::new(&MEMORY_POOL_ARRAY_0);
-        use super::super::super::memory_pool::tests::{Tester, TestParams};
+        use super::super::super::memory_pool::tests::{TestParams, Tester};
         #[test]
-        fn single_thread_randomized(){
-
+        fn single_thread_randomized() {
             let pool_test_params_0 = [
                 PoolTestParams {
                     max_n_elements: POOL0_SLOTS_PER_POOL,
                     max_element_size: POOL0_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
-                    n_initial_elements: 5},
-                PoolTestParams{
+                    n_initial_elements: 5,
+                },
+                PoolTestParams {
                     max_n_elements: POOL1_SLOTS_PER_POOL,
                     max_element_size: POOL1_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
-                    n_initial_elements: 4},
-                PoolTestParams{
+                    n_initial_elements: 4,
+                },
+                PoolTestParams {
                     max_n_elements: POOL2_SLOTS_PER_POOL,
                     max_element_size: POOL2_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
-                    n_initial_elements: 2},
+                    n_initial_elements: 2,
+                },
             ];
-
 
             let test_params = TestParams {
                 pool_test_params: &pool_test_params_0,
@@ -238,6 +240,81 @@ pub(super) mod tests {
 
             let mut tester = Tester::new(&ALLOCATOR_0);
             tester.run(test_params);
+        }
+    }
+
+    mod multi_thread_randomized {
+
+        use std::thread;
+
+        use crate::memory_allocation::allocator::memory_pool_allocator::memory_pool::tests::PoolTestParams;
+
+        use super::*;
+        const POOL0_ID: MemPoolId = 0;
+        const POOL0_WORDS_PER_SLOT: usize = 1;
+        const POOL0_SLOTS_PER_POOL: usize = 10;
+        const POOL0_WORDS_PER_POOL: usize = POOL0_SLOTS_PER_POOL * POOL0_WORDS_PER_SLOT;
+        static STATIC_MEMORY_POOL_0: SlotPool<POOL0_WORDS_PER_POOL> =
+            SlotPool::<POOL0_WORDS_PER_POOL>::new(POOL0_WORDS_PER_SLOT, POOL0_ID);
+        static MEMORY_POOL_0: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL_0);
+
+        const POOL1_ID: MemPoolId = 1;
+        const POOL1_WORDS_PER_SLOT: usize = 3;
+        const POOL1_SLOTS_PER_POOL: usize = 8;
+        const POOL1_WORDS_PER_POOL: usize = POOL1_SLOTS_PER_POOL * POOL1_WORDS_PER_SLOT;
+        static STATIC_MEMORY_POOL_1: SlotPool<POOL1_WORDS_PER_POOL> =
+            SlotPool::<POOL1_WORDS_PER_POOL>::new(POOL1_WORDS_PER_SLOT, POOL1_ID);
+        static MEMORY_POOL_1: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL_1);
+
+        const POOL2_ID: MemPoolId = 2;
+        const POOL2_WORDS_PER_SLOT: usize = 8;
+        const POOL2_SLOTS_PER_POOL: usize = 4;
+        const POOL2_WORDS_PER_POOL: usize = POOL2_SLOTS_PER_POOL * POOL2_WORDS_PER_SLOT;
+        static STATIC_MEMORY_POOL_2: SlotPool<POOL2_WORDS_PER_POOL> =
+            SlotPool::<POOL2_WORDS_PER_POOL>::new(POOL2_WORDS_PER_SLOT, POOL2_ID);
+        static MEMORY_POOL_2: MemoryPool = MemoryPool::from(&STATIC_MEMORY_POOL_2);
+
+        static MEMORY_POOL_ARRAY_0: [&MemoryPool; 3] =
+            [&MEMORY_POOL_0, &MEMORY_POOL_1, &MEMORY_POOL_2];
+        static ALLOCATOR_0: MemoryPoolAllocator = MemoryPoolAllocator::new(&MEMORY_POOL_ARRAY_0);
+        use super::super::super::memory_pool::tests::{TestParams, Tester};
+
+        const NB_THREADS: usize = 2;
+        #[test]
+        fn multi_thread_randomized() {
+            let mut join_handle_vec = Vec::new();
+            for _ in 0..NB_THREADS {
+                let join_hande = thread::spawn(move || {
+                    let pool_test_params = [
+                        PoolTestParams {
+                            max_n_elements: POOL0_SLOTS_PER_POOL / NB_THREADS,
+                            max_element_size: POOL0_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
+                            n_initial_elements: 5 / NB_THREADS,
+                        },
+                        PoolTestParams {
+                            max_n_elements: POOL1_SLOTS_PER_POOL / NB_THREADS,
+                            max_element_size: POOL1_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
+                            n_initial_elements: 4 / NB_THREADS,
+                        },
+                        PoolTestParams {
+                            max_n_elements: POOL2_SLOTS_PER_POOL / NB_THREADS,
+                            max_element_size: POOL2_WORDS_PER_SLOT * core::mem::size_of::<usize>(),
+                            n_initial_elements: 2 / NB_THREADS,
+                        },
+                    ];
+
+                    let test_params = TestParams {
+                        pool_test_params: &pool_test_params,
+                        n_iterations: 100000,
+                    };
+                    let mut tester = Tester::new(&ALLOCATOR_0);
+                    tester.run(test_params);
+                });
+                join_handle_vec.push(join_hande);
+            }
+            for join_handle in join_handle_vec.into_iter(){
+                join_handle.join().unwrap();
+            }
         }
     }
 }

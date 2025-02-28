@@ -15,16 +15,19 @@ pub(crate) struct SlotPointer {
 #[cfg(target_pointer_width = "32")]
 pub mod types {
     pub type SlotIndex = u16;
+    pub type MemPoolId = u8;
     pub type SlotTag = u16;
-    pub const MP_TAG_SH: usize = 16;
-    pub const MP_TAG_MSK: usize = 0xff00;
-    pub const MP_TAG_MAX_VALUE: u16 = core::u16::MAX;
-    pub const MP_TAG_MIN_VALUE: u16 = 0;
+    pub const MP_ID_SH: usize = 24;
+    pub const MP_ID_MSK: usize = 0xFF000000;
+    pub const MP_TAG_SH: usize = 12;
+    pub const MP_TAG_MSK: usize = 0x00FFF000;
+    pub const MP_TAG_MAX_VALUE: SlotTag = (MP_TAG_MSK >> MP_TAG_SH) as u32;
+    pub const MP_TAG_MIN_VALUE: SlotTag = 0;
     pub const MP_SLOT_IDX_SH: usize = 0;
-    pub const MP_SLOT_IDX_MSK: usize = 0x00ff;
-    pub const MP_SLOT_IDX_MAX_VAL: u16 = core::u16::MAX - 1;
-    pub const MP_SLOT_IDX_MIN_VAL: u16 = 0;
-    pub const MP_SLOT_IDX_NEXT_NONE: u16 = SlotIndex::MAX;
+    pub const MP_SLOT_IDX_MSK: usize = 0x00000FFF;
+    pub const MP_SLOT_IDX_MAX_VAL: SlotIndex = MP_SLOT_IDX_MSK as u32 - 1;
+    pub const MP_SLOT_IDX_MIN_VAL: SlotIndex = 0;
+    pub const MP_SLOT_IDX_NEXT_NONE: SlotIndex = MP_SLOT_IDX_MAX_VAL + 1;
 }
 
 #[cfg(target_pointer_width = "64")]

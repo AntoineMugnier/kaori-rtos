@@ -1,6 +1,6 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![allow(dead_code)]
-
+#![recursion_limit="100000"]
 mod event;
 mod memory_allocation;
 mod sync;

@@ -11,7 +11,6 @@ pub(crate) struct SlotPointer {
     inner: usize,
 }
 
-//TODO adjust
 #[cfg(target_pointer_width = "32")]
 pub mod types {
     pub type SlotIndex = u16;
@@ -607,7 +606,7 @@ pub mod tests {
         use super::*;
         const POOL0_ID: MemPoolId = 0;
         const POOL0_WORDS_PER_SLOT: usize = 8;
-        const POOL0_SLOT_PER_POOL: usize = 15;
+        const POOL0_SLOT_PER_POOL: usize = 30;
         const POOL0_WORDS_PER_POOL: usize = POOL0_SLOT_PER_POOL * POOL0_WORDS_PER_SLOT;
         static STATIC_MEMORY_POOL: SlotPool<POOL0_WORDS_PER_POOL> =
             SlotPool::<POOL0_WORDS_PER_POOL>::new(POOL0_WORDS_PER_SLOT, POOL0_ID);

@@ -71,7 +71,7 @@ impl<'a> MemoryPoolAllocator<'a> {
         }
 
         for memory_pool in self.memory_pool_array.iter() {
-            match memory_pool.try_allocate_slot(layout) {
+            match memory_pool.allocate(layout) {
                 Result::Ok(slot_pointer) => return Ok(slot_pointer),
                 Result::Err(err) => match err {
                     SlotAllocError::SlotNotLargeEnough => continue,
@@ -89,7 +89,7 @@ impl<'a> MemoryPoolAllocator<'a> {
         }
         let memory_pool = self.memory_pool_array[memory_pool_index];
 
-        if let Err(err) = memory_pool.try_free_slot(slot_pointer) {
+        if let Err(err) = memory_pool.free(slot_pointer) {
             match err {
                 SlotFreeingError::SlotOutOfRange => return Err(FreeError::InvalidSlotIndex),
             }

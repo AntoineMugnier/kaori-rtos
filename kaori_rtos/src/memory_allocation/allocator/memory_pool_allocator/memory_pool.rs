@@ -311,7 +311,7 @@ impl<'a> MemoryPool<'a> {
             .map(|x: *mut u8| x as *mut EmptySlot)
     }
 
-    pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
+    pub unsafe fn free(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
         println!(
             "pool {}: Freeing  slot {:?}",
             self.id,
@@ -339,7 +339,7 @@ impl<'a> MemoryPool<'a> {
         }
     }
 
-    pub fn try_allocate_slot(&self, layout: core::alloc::Layout) -> SlotAllocResult {
+    pub fn allocate(&self, layout: core::alloc::Layout) -> SlotAllocResult {
         if layout.size() > (self.get_slot_size()) {
             return Err(SlotAllocError::SlotNotLargeEnough);
         }
@@ -372,11 +372,11 @@ impl<'a> MemoryPool<'a> {
 
 impl<'a> Allocator<SlotPointer, SlotFreeingError, SlotAllocError> for MemoryPool<'a> {
     unsafe fn free(&self, slot_pointer: SlotPointer) -> Result<(), SlotFreeingError> {
-        self.try_free_slot(slot_pointer)
+        self.free(slot_pointer)
     }
 
     fn allocate(&self, layout: core::alloc::Layout) -> Result<SlotPointer, SlotAllocError> {
-        self.try_allocate_slot(layout)
+        self.allocate(layout)
     }
 }
 
@@ -416,39 +416,39 @@ pub mod tests {
                     _b: usize,
                 }
 
-                let res0 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
+                let res0 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res0 = res0.unwrap();
                 let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
                 *struct0_0 = Struct0 {
                     a: core::usize::MAX,
                 };
 
-                let res1 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
+                let res1 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res1 = res1.unwrap();
                 let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
                 *struct0_1 = Struct0 {
                     a: core::usize::MIN,
                 };
 
-                let res2 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
+                let res2 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 assert_eq!(res2, Err(SlotAllocError::PoolFull));
 
                 assert_eq!(struct0_0.a, core::usize::MAX);
                 assert_eq!(struct0_1.a, core::usize::MIN);
 
-                MEMORY_POOL_0.try_free_slot(res1).unwrap();
+                MEMORY_POOL_0.free(res1).unwrap();
                 assert_eq!(struct0_0.a, core::usize::MAX);
 
                 let res3 = SlotPointer {
                     inner: (res1.get_index_raw() + 1) as usize,
                 };
-                let res3 = MEMORY_POOL_0.try_free_slot(res3);
+                let res3 = MEMORY_POOL_0.free(res3);
                 assert_eq!(res3, Err(SlotFreeingError::SlotOutOfRange));
 
-                let res2 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct1>());
+                let res2 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct1>());
                 assert_eq!(res2, Err(SlotAllocError::SlotNotLargeEnough));
 
-                let res4 = MEMORY_POOL_0.try_allocate_slot(core::alloc::Layout::new::<Struct0>());
+                let res4 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res4 = res4.unwrap();
                 let struct0_4: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res4).unwrap();
                 *struct0_4 = Struct0 {
@@ -457,11 +457,11 @@ pub mod tests {
 
                 assert_eq!((*struct0_0).a, core::usize::MAX);
 
-                let res0 = MEMORY_POOL_0.try_free_slot(res0);
+                let res0 = MEMORY_POOL_0.free(res0);
                 assert_eq!(res0, Ok(()));
 
                 assert_eq!(struct0_4.a, 0xAAAAAAAAAAAAAAAA);
-                let res4 = MEMORY_POOL_0.try_free_slot(res4);
+                let res4 = MEMORY_POOL_0.free(res4);
                 res4.unwrap();
             }
         }

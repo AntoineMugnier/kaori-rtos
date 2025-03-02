@@ -1,3 +1,4 @@
+use crate::memory_allocation::allocator::Allocator;
 use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 use crate::sync::{AsyncArrayCell, AsyncArrayCellRef};
 use core::result::Result;
@@ -311,7 +312,11 @@ impl<'a> MemoryPool<'a> {
     }
 
     pub unsafe fn try_free_slot(&self, slot_pointer: SlotPointer) -> SlotFreeingResult {
-        println!("pool {}: Freeing  slot {:?}",self.id,  slot_pointer.get_index());
+        println!(
+            "pool {}: Freeing  slot {:?}",
+            self.id,
+            slot_pointer.get_index()
+        );
         let new_head_slot = self
             .get_empty_slot_mut(&slot_pointer)
             .map_err(|_| SlotFreeingError::SlotOutOfRange)?;
@@ -341,7 +346,7 @@ impl<'a> MemoryPool<'a> {
         loop {
             let mut head = self.head.load(atomic::Ordering::Acquire);
 
-            println!("pool {}: Allocating slot {:?}", self.id,  head.get_index());
+            println!("pool {}: Allocating slot {:?}", self.id, head.get_index());
             if let Ok(head_slot) = self.get_empty_slot(&head) {
                 unsafe {
                     let head_next = &(*head_slot).next;
@@ -362,6 +367,16 @@ impl<'a> MemoryPool<'a> {
                 return Err(SlotAllocError::PoolFull);
             }
         }
+    }
+}
+
+impl<'a> Allocator<SlotPointer, SlotFreeingError, SlotAllocError> for MemoryPool<'a> {
+    unsafe fn free(&self, slot_pointer: SlotPointer) -> Result<(), SlotFreeingError> {
+        self.try_free_slot(slot_pointer)
+    }
+
+    fn allocate(&self, layout: core::alloc::Layout) -> Result<SlotPointer, SlotAllocError> {
+        self.try_allocate_slot(layout)
     }
 }
 
@@ -451,15 +466,6 @@ pub mod tests {
             }
         }
     }
-    impl<'a> Allocator<SlotPointer, SlotFreeingError, SlotAllocError> for MemoryPool<'a> {
-        unsafe fn free(&self, slot_pointer: SlotPointer) -> Result<(), SlotFreeingError> {
-            self.try_free_slot(slot_pointer)
-        }
-
-        fn allocate(&self, layout: core::alloc::Layout) -> Result<SlotPointer, SlotAllocError> {
-            self.try_allocate_slot(layout)
-        }
-    }
 
     pub(crate) struct Tester<
         'a,
@@ -527,12 +533,11 @@ pub mod tests {
             }
         }
 
-         fn get_previous_pool_max_element_size(&self,index: usize, tp: &TestParams) -> usize {
-            if index == 0{
-                 1
-            }
-            else{
-                tp.pool_test_params[index -1].max_element_size + 1
+        fn get_previous_pool_max_element_size(&self, index: usize, tp: &TestParams) -> usize {
+            if index == 0 {
+                1
+            } else {
+                tp.pool_test_params[index - 1].max_element_size + 1
             }
         }
         pub(crate) fn run(&mut self, tp: TestParams) {
@@ -544,7 +549,8 @@ pub mod tests {
                 self.reference_allocator.push(Vec::new());
                 let min_element_size = self.get_previous_pool_max_element_size(pool_idx, &tp);
                 for _ in 0..pool_param.n_initial_elements {
-                    let generated_element_size = rng.random_range(min_element_size..pool_param.max_element_size);
+                    let generated_element_size =
+                        rng.random_range(min_element_size..pool_param.max_element_size);
                     let mut generated_element: Vec<_> = (&mut rng)
                         .random_iter::<u8>()
                         .take(generated_element_size)
@@ -572,10 +578,11 @@ pub mod tests {
                 }
 
                 if should_allocate {
-                    let min_element_size = self.get_previous_pool_max_element_size(picked_tp_i, &tp);
+                    let min_element_size =
+                        self.get_previous_pool_max_element_size(picked_tp_i, &tp);
 
-
-                    let generated_element_size = rng.random_range(min_element_size..picked_tp.max_element_size);
+                    let generated_element_size =
+                        rng.random_range(min_element_size..picked_tp.max_element_size);
                     let mut generated_element: Vec<_> = (&mut rng)
                         .random_iter::<u8>()
                         .take(generated_element_size)

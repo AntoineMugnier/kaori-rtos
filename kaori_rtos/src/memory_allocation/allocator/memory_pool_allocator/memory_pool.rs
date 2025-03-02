@@ -499,7 +499,7 @@ pub mod tests {
             }
         }
 
-        pub unsafe fn allocate(&mut self, pool_idx: usize, element: &mut [u8]) {
+        unsafe fn allocate(&mut self, pool_idx: usize, element: &mut [u8]) {
             println!("Allocating for {}", pool_idx);
             let layout = core::alloc::Layout::array::<u8>(element.len()).unwrap();
             let pointer = self.allocator.allocate(layout).unwrap();
@@ -509,7 +509,7 @@ pub mod tests {
             self.reference_allocator[pool_idx].push((element.to_vec(), pointer));
         }
 
-        pub fn free(&mut self, pool_idx: usize, element_index: usize) {
+        fn free(&mut self, pool_idx: usize, element_index: usize) {
             let (_, slot_pointer) = self.reference_allocator[pool_idx].remove(element_index);
             unsafe {
                 self.allocator.free(slot_pointer).unwrap();

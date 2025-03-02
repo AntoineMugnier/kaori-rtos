@@ -1,8 +1,8 @@
-use self::memory_pool::SlotPointer;
 
-pub mod allocator;
-// pub mod global_allocator;
-pub mod memory_pool;
+mod allocator;
+mod memory_pool;
+
+pub use memory_pool::{SlotPool,types::MemPoolId,  SlotPointer, MemoryPool, SlotAllocError, SlotAccessError, SlotFreeingError};
 
 pub trait MemoryAccessor<PointerType>{
     fn get_slot_mut(

@@ -8,7 +8,7 @@ struct AtomicSlotPointer {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub(crate) struct SlotPointer {
+pub struct SlotPointer {
     inner: usize,
 }
 
@@ -101,7 +101,7 @@ impl SlotPointer {
         }
     }
 
-    pub(crate) const fn get_mem_pool_id(&self) -> MemPoolId {
+    pub const fn get_mem_pool_id(&self) -> MemPoolId {
         ((self.inner & MP_ID_MSK) >> MP_ID_SH) as MemPoolId
     }
 
@@ -139,19 +139,19 @@ pub enum SlotAllocError {
     PoolFull,
     SlotNotLargeEnough,
 }
-type SlotAllocResult = Result<SlotPointer, SlotAllocError>;
+pub type SlotAllocResult = Result<SlotPointer, SlotAllocError>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SlotFreeingError {
     SlotOutOfRange,
 }
 
-type SlotFreeingResult = Result<(), SlotFreeingError>;
+pub type SlotFreeingResult = Result<(), SlotFreeingError>;
 
-pub(crate) struct SlotPool<const WORDS_PER_POOL: usize> {
-    pub(crate) sto: AsyncArrayCell<usize, WORDS_PER_POOL>,
-    pub(crate) words_per_slot: usize,
-    pub(crate) pool_id: MemPoolId,
+pub struct SlotPool<const WORDS_PER_POOL: usize> {
+     sto: AsyncArrayCell<usize, WORDS_PER_POOL>,
+     words_per_slot: usize,
+     pool_id: MemPoolId,
 }
 
 const NEXT_SLOT_NONE: usize = core::usize::MAX;
@@ -220,22 +220,19 @@ struct EmptySlot {
     next: AtomicSlotPointer,
 }
 
-pub(crate) struct MemoryPool<'a> {
+pub struct MemoryPool<'a> {
     id: MemPoolId,
     sto: AsyncArrayCellRef<'a, usize>,
     words_per_slot: usize,
     head: AtomicSlotPointer,
 }
 
-pub(crate) enum SlotAccessError {
+pub enum SlotAccessError {
     SlotOutOfRange,
     SlotNone,
 }
 
 impl<'a> MemoryPool<'a> {
-    // pub(crate) const fn get_inner(&mut self) -> &mut [usize]{
-    //     &mut self.sto
-    // }
 
     pub const fn get_mem_pool_id(&self) -> MemPoolId {
         self.id
@@ -251,7 +248,7 @@ impl<'a> MemoryPool<'a> {
             head: slot_pool.create_head(),
         }
     }
-    pub(crate) const fn get_slot_size(&self) -> usize {
+    pub const fn get_slot_size(&self) -> usize {
         self.words_per_slot * core::mem::size_of::<usize>()
     }
 
@@ -260,7 +257,7 @@ impl<'a> MemoryPool<'a> {
         self.sto.len() / self.words_per_slot
     }
 
-    pub(crate) fn get_slot_raw_mut(
+    pub fn get_slot_raw_mut(
         &self,
         slot_pointer: &SlotPointer,
     ) -> Result<*mut u8, SlotAccessError> {
@@ -283,7 +280,7 @@ impl<'a> MemoryPool<'a> {
     }
 
     // Get a slot from the memory pool using a SlotPointer object
-    pub(crate) unsafe fn get_slot_transmute<T>(
+    pub unsafe fn get_slot_transmute<T>(
         &self,
         slot_pointer: &SlotPointer,
     ) -> Result<&mut T, ()> {
@@ -467,7 +464,7 @@ pub mod tests {
         }
     }
 
-    pub(crate) struct Tester<
+    pub struct Tester<
         'a,
         FreeErrorType: core::fmt::Debug,
         AllocationErrorType: core::fmt::Debug,
@@ -491,7 +488,7 @@ pub mod tests {
                 + MemoryAccessor<SlotPointer>,
         > Tester<'a, FreeErrorType, AllocationErrorType, AllocatorType>
     {
-        pub(crate) fn new(
+        pub fn new(
             allocator: &'a AllocatorType,
         ) -> Tester<'a, FreeErrorType, AllocationErrorType, AllocatorType> {
             Self {
@@ -502,7 +499,7 @@ pub mod tests {
             }
         }
 
-        pub(crate) unsafe fn allocate(&mut self, pool_idx: usize, element: &mut [u8]) {
+        pub unsafe fn allocate(&mut self, pool_idx: usize, element: &mut [u8]) {
             println!("Allocating for {}", pool_idx);
             let layout = core::alloc::Layout::array::<u8>(element.len()).unwrap();
             let pointer = self.allocator.allocate(layout).unwrap();
@@ -512,14 +509,14 @@ pub mod tests {
             self.reference_allocator[pool_idx].push((element.to_vec(), pointer));
         }
 
-        pub(crate) fn free(&mut self, pool_idx: usize, element_index: usize) {
+        pub fn free(&mut self, pool_idx: usize, element_index: usize) {
             let (_, slot_pointer) = self.reference_allocator[pool_idx].remove(element_index);
             unsafe {
                 self.allocator.free(slot_pointer).unwrap();
             }
         }
 
-        pub(crate) fn run_integrity_check(&mut self) {
+        pub fn run_integrity_check(&mut self) {
             for reference_pool_allocator in self.reference_allocator.iter() {
                 for (reference_element, pointer) in reference_pool_allocator {
                     let element_slot = self.allocator.get_slot_mut(&pointer).unwrap();
@@ -540,7 +537,7 @@ pub mod tests {
                 tp.pool_test_params[index - 1].max_element_size + 1
             }
         }
-        pub(crate) fn run(&mut self, tp: TestParams) {
+        pub fn run(&mut self, tp: TestParams) {
             let mut rng = rand::rng();
 
             //Fill the pool
@@ -599,12 +596,12 @@ pub mod tests {
         }
     }
 
-    pub(crate) struct PoolTestParams {
+    pub struct PoolTestParams {
         pub max_n_elements: usize,
         pub max_element_size: usize,
         pub n_initial_elements: usize,
     }
-    pub(crate) struct TestParams<'a> {
+    pub struct TestParams<'a> {
         pub pool_test_params: &'a [PoolTestParams],
         pub n_iterations: usize,
     }

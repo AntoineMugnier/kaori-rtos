@@ -3,22 +3,22 @@ use super::{
     MemoryAccessor,
 };
 use crate::memory_allocation::allocator::Allocator;
-pub(crate) type AllocationResult = Result<SlotPointer, AllocationError>;
+pub type AllocationResult = Result<SlotPointer, AllocationError>;
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum AllocationError {
+pub enum AllocationError {
     NullAllocation,
     NoMemoryAvailable,
     NoSlotLargeEnough,
 }
 
-pub(crate) type FreeResult = Result<(), FreeError>;
+pub type FreeResult = Result<(), FreeError>;
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum FreeError {
+pub enum FreeError {
     InvalidSlotIndex,
     InvalidMemoryPoolId,
 }
 
-pub(crate) struct MemoryPoolAllocator<'a> {
+pub struct MemoryPoolAllocator<'a> {
     memory_pool_array: &'a [&'a MemoryPool<'a>],
 }
 

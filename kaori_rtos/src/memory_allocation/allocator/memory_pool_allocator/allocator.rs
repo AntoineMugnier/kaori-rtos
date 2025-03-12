@@ -148,17 +148,18 @@ pub(super) mod tests {
                 for _ in 0..4 {
                     let res0 = ALLOCATOR_0.allocate(Layout::new::<Struct0>());
                     let res0 = res0.unwrap();
-                    let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
-                    *struct0_0 = Struct0 {
+
+                    let struct0_0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
+                    struct0_0.write(Struct0 {
                         a: core::usize::MAX,
-                    };
+                    });
 
                     let res1 = ALLOCATOR_0.allocate(Layout::new::<Struct0>());
                     let res1 = res1.unwrap();
-                    let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
-                    *struct0_1 = Struct0 {
+                    let struct0_1 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
+                    struct0_1.write(Struct0 {
                         a: core::usize::MIN,
-                    };
+                    });
 
                     let res2 = ALLOCATOR_0.allocate(Layout::new::<Struct0>());
                     assert_eq!(res2, Err(AllocationError::NoMemoryAvailable));
@@ -166,12 +167,12 @@ pub(super) mod tests {
                     let res5 = ALLOCATOR_0.allocate(Layout::new::<Struct1>());
                     assert_eq!(res5, Err(AllocationError::NullAllocation));
 
-                    assert_eq!(struct0_0.a, core::usize::MAX);
-                    assert_eq!(struct0_1.a, core::usize::MIN);
+                    assert_eq!(struct0_0.assume_init_mut().a, core::usize::MAX);
+                    assert_eq!(struct0_1.assume_init_mut().a, core::usize::MIN);
 
                     let res1 = ALLOCATOR_0.free(res1);
                     assert_eq!(res1, Ok(()));
-                    assert_eq!(struct0_0.a, core::usize::MAX);
+                    assert_eq!(struct0_0.assume_init_mut().a, core::usize::MAX);
 
                     let res0 = ALLOCATOR_0.free(res0);
                     assert_eq!(res0, Ok(()));
@@ -312,7 +313,7 @@ pub(super) mod tests {
                 });
                 join_handle_vec.push(join_hande);
             }
-            for join_handle in join_handle_vec.into_iter(){
+            for join_handle in join_handle_vec.into_iter() {
                 join_handle.join().unwrap();
             }
         }

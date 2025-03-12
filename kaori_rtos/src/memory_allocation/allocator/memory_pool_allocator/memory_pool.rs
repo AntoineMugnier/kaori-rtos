@@ -1,6 +1,7 @@
 use crate::memory_allocation::allocator::Allocator;
 use crate::memory_allocation::allocator::memory_pool_allocator::MemoryAccessor;
 use crate::sync::{AsyncArrayCell, AsyncArrayCellRef};
+use core::mem::MaybeUninit;
 use core::result::Result;
 use portable_atomic as atomic;
 struct AtomicSlotPointer {
@@ -120,11 +121,11 @@ impl SlotPointer {
             | ((index as usize) << MP_SLOT_IDX_SH);
     }
 
-    fn get_index_raw(&self) -> SlotIndex {
+    pub(crate) fn get_index_raw(&self) -> SlotIndex {
         ((self.inner >> MP_SLOT_IDX_SH) & MP_SLOT_IDX_MSK) as SlotIndex
     }
 
-    fn get_index(&self) -> Option<SlotIndex> {
+    pub(crate) fn get_index(&self) -> Option<SlotIndex> {
         let index = ((self.inner >> MP_SLOT_IDX_SH) & MP_SLOT_IDX_MSK) as SlotIndex;
         if index != MP_SLOT_IDX_NEXT_NONE {
             Some(index)
@@ -283,10 +284,10 @@ impl<'a> MemoryPool<'a> {
     pub unsafe fn get_slot_transmute<T>(
         &self,
         slot_pointer: &SlotPointer,
-    ) -> Result<&mut T, ()> {
+    ) -> Result<&mut MaybeUninit<T>, ()> {
         let slot_mem_ptr_res = self.get_slot_raw_mut(slot_pointer);
         if let Ok(slot_mem_ptr) = slot_mem_ptr_res {
-            Ok((slot_mem_ptr as *mut T).as_mut().unwrap())
+            Ok((slot_mem_ptr as *mut MaybeUninit<T>).as_mut().unwrap())
         } else {
             Err(())
         }
@@ -415,26 +416,27 @@ pub mod tests {
 
                 let res0 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res0 = res0.unwrap();
-                let struct0_0: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
-                *struct0_0 = Struct0 {
+                let struct0_0 = MEMORY_POOL_0.get_slot_transmute(&res0).unwrap();
+                struct0_0.write(Struct0 {
                     a: core::usize::MAX,
-                };
+                });
 
                 let res1 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res1 = res1.unwrap();
-                let struct0_1: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
-                *struct0_1 = Struct0 {
+
+                let struct0_1 = MEMORY_POOL_0.get_slot_transmute(&res1).unwrap();
+                struct0_1.write(Struct0 {
                     a: core::usize::MIN,
-                };
+                });
 
                 let res2 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 assert_eq!(res2, Err(SlotAllocError::PoolFull));
 
-                assert_eq!(struct0_0.a, core::usize::MAX);
-                assert_eq!(struct0_1.a, core::usize::MIN);
+                assert_eq!(struct0_0.assume_init_mut().a, core::usize::MAX);
+                assert_eq!(struct0_1.assume_init_mut().a, core::usize::MIN);
 
                 MEMORY_POOL_0.free(res1).unwrap();
-                assert_eq!(struct0_0.a, core::usize::MAX);
+                assert_eq!(struct0_0.assume_init_mut().a, core::usize::MAX);
 
                 let res3 = SlotPointer {
                     inner: (res1.get_index_raw() + 1) as usize,
@@ -447,17 +449,19 @@ pub mod tests {
 
                 let res4 = MEMORY_POOL_0.allocate(core::alloc::Layout::new::<Struct0>());
                 let res4 = res4.unwrap();
-                let struct0_4: &mut Struct0 = MEMORY_POOL_0.get_slot_transmute(&res4).unwrap();
-                *struct0_4 = Struct0 {
-                    a: 0xAAAAAAAAAAAAAAAA,
-                };
 
-                assert_eq!((*struct0_0).a, core::usize::MAX);
+                
+                let struct0_4 = MEMORY_POOL_0.get_slot_transmute(&res4).unwrap();
+                struct0_4.write(Struct0 {
+                    a: 0xAAAAAAAAAAAAAAAA,
+                });
+
+                assert_eq!(struct0_0.assume_init_mut().a, core::usize::MAX);
 
                 let res0 = MEMORY_POOL_0.free(res0);
                 assert_eq!(res0, Ok(()));
 
-                assert_eq!(struct0_4.a, 0xAAAAAAAAAAAAAAAA);
+                assert_eq!(struct0_4.assume_init_mut().a, 0xAAAAAAAAAAAAAAAA);
                 let res4 = MEMORY_POOL_0.free(res4);
                 res4.unwrap();
             }
